@@ -998,7 +998,43 @@ const APP_STORE_URL: &str = "https://apps.apple.com/app/id0000000000";
 struct ReferralLink {
     uuid: String,
     share_url: String,
+    /// The payout key this record was last published with, so a later
+    /// connect in getpayed can be detected and the record updated in
+    /// place. Absent on links published before referrals named a payee.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    payout_pub_key: Option<String>,
 }
+/// The Addie payout key getpayed wrote to the shared profile, if the user
+/// has connected Stripe there. Best-effort: no payout key simply means a
+/// referral gets published without a payee, which is the normal case for
+/// anyone who hasn't set up payouts.
+async fn shared_payout_pub_key(app: &tauri::AppHandle) -> Option<String> {
+    load_canonical_profile(app.clone())
+        .await
+        .ok()
+        .flatten()
+        .and_then(|profile| profile.payout_pub_key)
+        .filter(|key| !key.trim().is_empty())
+}
+
+/// The referral record as published: the card itself, plus who to pay if a
+/// future payout comes of it. Extra fields are safe — savage renders the
+/// `svg` field and ignores everything else.
+///
+/// Note this record is PUBLIC, and the key is the same one already visible
+/// on any invoice getpayed publishes. It identifies a payout destination,
+/// not a person, and can't be used to move money on its own.
+fn referral_bdo(svg: String, payout_pub_key: Option<&str>) -> serde_json::Value {
+    let mut record = serde_json::json!({ "svg": svg });
+    if let Some(key) = payout_pub_key {
+        let object = record.as_object_mut().expect("referral record is an object");
+        object.insert("payoutPubKey".to_string(), serde_json::Value::String(key.to_string()));
+        // Says how to interpret the key without a reader having to guess.
+        object.insert("payoutProcessor".to_string(), serde_json::Value::String("addie-stripe".to_string()));
+    }
+    record
+}
+
 
 fn referral_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(data_dir(app)?.join("referral.json"))
@@ -1063,16 +1099,38 @@ fn render_referral_svg(app_store_url: &str) -> String {
 /// static and never needs re-publishing.
 #[tauri::command]
 async fn get_or_create_referral_link(app: tauri::AppHandle) -> Result<String, String> {
+    let payout_pub_key = shared_payout_pub_key(&app).await;
+
     let mut links = read_referral_links(&app);
-    if let Some(link) = links.get(GATEWAY_ENV) {
-        return Ok(link.share_url.clone());
+    if let Some(link) = links.get(GATEWAY_ENV).cloned() {
+        // Nothing changed — hand back the link already in circulation.
+        if link.payout_pub_key == payout_pub_key {
+            return Ok(link.share_url.clone());
+        }
+
+        // The user connected Stripe (or switched payout identity) after this
+        // referral was published. Update the record IN PLACE so every copy
+        // of the link already out there starts naming the payee, rather than
+        // minting a new link the old shares would never point at.
+        let sessionless = load_or_create_bdo_sessionless(&app, "referral")?;
+        let client = BDO::new(Some(GATEWAY_BDO_URL.to_string()), Some(sessionless));
+        let record = referral_bdo(render_referral_svg(APP_STORE_URL), payout_pub_key.as_deref());
+        client
+            .update_bdo(&link.uuid, REFERRAL_HASH, &record, &true)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let updated = ReferralLink { payout_pub_key, ..link };
+        let share_url = updated.share_url.clone();
+        links.insert(GATEWAY_ENV.to_string(), updated);
+        write_referral_links(&app, &links)?;
+        return Ok(share_url);
     }
 
     let sessionless = load_or_create_bdo_sessionless(&app, "referral")?;
     let client = BDO::new(Some(GATEWAY_BDO_URL.to_string()), Some(sessionless));
 
-    let svg = render_referral_svg(APP_STORE_URL);
-    let card_json = serde_json::json!({ "svg": svg });
+    let card_json = referral_bdo(render_referral_svg(APP_STORE_URL), payout_pub_key.as_deref());
 
     let user = client
         .create_user(REFERRAL_HASH, &card_json, &true)
@@ -1089,7 +1147,7 @@ async fn get_or_create_referral_link(app: tauri::AppHandle) -> Result<String, St
         "{SAVAGE_URL}user/{uuid}/bdo?timestamp={timestamp}&hash={REFERRAL_HASH}&signature={signature}"
     );
 
-    let link = ReferralLink { uuid, share_url: share_url.clone() };
+    let link = ReferralLink { uuid, share_url: share_url.clone(), payout_pub_key };
     links.insert(GATEWAY_ENV.to_string(), link);
     write_referral_links(&app, &links)?;
     Ok(share_url)
@@ -1405,6 +1463,12 @@ pub struct CanonicalProfile {
     /// getpayed-owned. Present here so linkitylink round-trips it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stripe_connected: Option<bool>,
+    /// getpayed-owned. The Addie public key payouts are routed to — Addie
+    /// resolves it to a Stripe connected account at transfer time. Read
+    /// here (not written) so a referral card can name who to pay; carried
+    /// forward unchanged on save.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub payout_pub_key: Option<String>,
     pub updated_at: Option<String>,
 }
 
@@ -1449,6 +1513,7 @@ async fn save_canonical_profile(app: tauri::AppHandle, mut profile: CanonicalPro
         if profile.service_zip.is_none() { profile.service_zip = existing.service_zip; }
         if profile.idothis_rate_cents.is_none() { profile.idothis_rate_cents = existing.idothis_rate_cents; }
         if profile.stripe_connected.is_none() { profile.stripe_connected = existing.stripe_connected; }
+        if profile.payout_pub_key.is_none() { profile.payout_pub_key = existing.payout_pub_key; }
     }
 
     let mut deduped: Vec<CanonicalField> = Vec::new();
@@ -1501,6 +1566,64 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The payout key crosses app boundaries as JSON in the App Group, and
+    /// each app keeps its OWN copy of the CanonicalProfile struct — four
+    /// copies that have to agree. This pins the contract: a profile written
+    /// by getpayed must parse here with the key intact, and saving from
+    /// this app must not drop it (the carry-forward in
+    /// save_canonical_profile), because this app has no UI for it and
+    /// always sends None.
+    #[test]
+    fn canonical_profile_round_trips_payout_key() {
+        // Exactly what getpayed writes, including fields this app knows
+        // nothing about, to prove unknown keys don't break the parse.
+        let written_by_getpayed = r#"{
+            "photo": null,
+            "fields": [{"slug":"name","name":"Name","value":"Ada"}],
+            "stripeConnected": true,
+            "payoutPubKey": "02c956a0ea38fbff0f33a538df041b5d135a6411c34f390b2203effefd5160fd2f",
+            "idothisRateCents": 9000,
+            "someFutureField": {"nested": true},
+            "updatedAt": "1790000000000"
+        }"#;
+
+        let profile: CanonicalProfile =
+            serde_json::from_str(written_by_getpayed).expect("getpayed's profile should parse here");
+        assert_eq!(
+            profile.payout_pub_key.as_deref(),
+            Some("02c956a0ea38fbff0f33a538df041b5d135a6411c34f390b2203effefd5160fd2f")
+        );
+        assert_eq!(profile.stripe_connected, Some(true));
+        assert_eq!(profile.idothis_rate_cents, Some(9000));
+
+        // Re-serializing keeps the camelCase spelling the other apps read.
+        let json = serde_json::to_string(&profile).unwrap();
+        assert!(json.contains("\"payoutPubKey\""), "got {json}");
+
+        // A profile with no key at all must parse too — most users have
+        // never connected Stripe.
+        let no_key: CanonicalProfile = serde_json::from_str(r#"{"fields":[]}"#).unwrap();
+        assert_eq!(no_key.payout_pub_key, None);
+    }
+
+    /// A referral record names its payee only when there is one, and says
+    /// how to interpret the key. Whoever settles a referral payout later
+    /// reads these fields, so their spelling is a contract.
+    #[test]
+    fn referral_record_names_the_payee_when_known() {
+        let with_payee = referral_bdo("<svg/>".to_string(), Some("02abc"));
+        assert_eq!(with_payee["payoutPubKey"], "02abc");
+        assert_eq!(with_payee["payoutProcessor"], "addie-stripe");
+        // The card itself still has to be there — savage renders this field
+        // and ignores the rest.
+        assert_eq!(with_payee["svg"], "<svg/>");
+
+        let without = referral_bdo("<svg/>".to_string(), None);
+        assert!(without.get("payoutPubKey").is_none());
+        assert!(without.get("payoutProcessor").is_none());
+        assert_eq!(without["svg"], "<svg/>");
+    }
 
     /// Renders a fully-populated card and writes it out, so the published SVG
     /// can be looked at rather than reasoned about. Colour changes especially
