@@ -107,7 +107,7 @@ For API/integration details of this server (endpoints, environment variables, th
 
 ## Known Limitations
 
-- **No real App Store listing yet**: `APP_STORE_URL` in `lib.rs` is a placeholder (`https://apps.apple.com/app/id0000000000`), flagged with a `TODO` to replace once Linkitylink has a real listing — the referral-share feature links there today.
+- **Referral cards are published once and cached, so what they assert has to be correctable**: the record lives at a permanent savage URL that may already be shared widely, so `get_or_create_referral_link` updates it IN PLACE rather than minting a new link whenever something it asserts has changed — the App Store URL, or the payout destination getpayed writes to the shared profile after connecting Stripe. `ReferralLink` remembers both so a change can be detected; `app_store_url: None` means the record predates that tracking (i.e. carries the old placeholder) and is rewritten once. Linkitylink's listing id is **6808065892** (set September 2026); the public page 404s until the app is actually released.
 - **Import scraping is best-effort**: `import_links`' generic fallback parser (non-Linktree URLs) is a simple outbound-`<a>` scrape with a same-origin/self-referential-share-widget filter; sites that render their link list via client-side JS won't produce any results (server-side `reqwest` fetch only, no headless browser).
 - **Root Express server and Tauri app are fully independent products** sharing a repo and a name — there is no shared data model, shared code, or migration path between a card in the Tauri app and a link page created via the Express server's BDO/emojicode flow.
 

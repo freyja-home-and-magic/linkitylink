@@ -990,8 +990,7 @@ async fn publish_card(app: tauri::AppHandle, card_id: String) -> Result<LinkCard
 // real <a href> to the App Store.
 
 const REFERRAL_HASH: &str = "linkitylink-referral";
-// TODO: replace with the real App Store listing URL once Linkitylink has one.
-const APP_STORE_URL: &str = "https://apps.apple.com/app/id0000000000";
+const APP_STORE_URL: &str = "https://apps.apple.com/app/id6808065892";
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
