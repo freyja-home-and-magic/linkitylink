@@ -15,10 +15,17 @@ use tauri::Manager;
 // One hostname, one certificate, everything over real HTTPS — which is also
 // what keeps iOS ATS happy, since the services themselves speak plain HTTP
 // and are not reachable directly from outside.
-const GATEWAY_BDO_URL: &str = "https://dev.8as.world/bdo/";
-// NOTE: nginx has no /savage/ route yet, so publishing works but the share
-// link this produces 404s until that route is added server-side.
-const SAVAGE_URL: &str = "https://dev.8as.world/savage/";
+//
+// Production, as of the App Store submission. Dev's BDO is a commit behind
+// and answers a successful delete with 404, which made "Delete All My Data"
+// report failure on a deletion that had in fact happened — not something to
+// ship while claiming users can delete their data. Cards published against
+// dev by earlier TestFlight builds are unaffected: their uuids are kept
+// per-env (see GATEWAY_ENV), and unpublish_everywhere rebuilds each base
+// from the stored env key, so deleting one still reaches the base holding
+// it.
+const GATEWAY_BDO_URL: &str = "https://prod.8as.world/bdo/";
+const SAVAGE_URL: &str = "https://prod.8as.world/savage/";
 const BDO_HASH: &str = "linkitylink-card";
 
 // ── Palette ──────────────────────────────────────────────────────────────────
@@ -55,7 +62,7 @@ const MAX_CARDS: usize = 4;
 // another, so both a card's publish record and the referral link are stored
 // per-env (keyed by this const) rather than as a single value. Bump this
 // whenever GATEWAY_BDO_URL points at a genuinely different BDO deployment.
-const GATEWAY_ENV: &str = "dev-8as-world";
+const GATEWAY_ENV: &str = "prod-8as-world";
 const MAX_LINKS: usize = 16;
 // Bounds a pathological generic-fallback page's raw scrape output; the real
 // user-facing cap is MAX_LINKS, enforced at merge time in the JS import handler.
