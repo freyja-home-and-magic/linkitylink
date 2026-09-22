@@ -998,23 +998,25 @@ const APP_STORE_URL: &str = "https://apps.apple.com/app/id0000000000";
 struct ReferralLink {
     uuid: String,
     share_url: String,
-    /// The payout key this record was last published with, so a later
+    /// The destination this record was last published with, so a later
     /// connect in getpayed can be detected and the record updated in
     /// place. Absent on links published before referrals named a payee.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    payout_pub_key: Option<String>,
+    payout: Option<PayoutDestination>,
 }
-/// The Addie payout key getpayed wrote to the shared profile, if the user
-/// has connected Stripe there. Best-effort: no payout key simply means a
+/// The payout destination getpayed wrote to the shared profile, if the user
+/// has connected Stripe there. Best-effort: no destination simply means a
 /// referral gets published without a payee, which is the normal case for
-/// anyone who hasn't set up payouts.
-async fn shared_payout_pub_key(app: &tauri::AppHandle) -> Option<String> {
+/// anyone who hasn't set up payouts. A half-filled pair is discarded — a key
+/// with no base to resolve it against is worse than nothing, since it would
+/// look like a valid payee and route nowhere.
+async fn shared_payout_destination(app: &tauri::AppHandle) -> Option<PayoutDestination> {
     load_canonical_profile(app.clone())
         .await
         .ok()
         .flatten()
-        .and_then(|profile| profile.payout_pub_key)
-        .filter(|key| !key.trim().is_empty())
+        .and_then(|profile| profile.payout)
+        .filter(|payout| !payout.pub_key.trim().is_empty() && !payout.addie_url.trim().is_empty())
 }
 
 /// The referral record as published: the card itself, plus who to pay if a
@@ -1024,13 +1026,21 @@ async fn shared_payout_pub_key(app: &tauri::AppHandle) -> Option<String> {
 /// Note this record is PUBLIC, and the key is the same one already visible
 /// on any invoice getpayed publishes. It identifies a payout destination,
 /// not a person, and can't be used to move money on its own.
-fn referral_bdo(svg: String, payout_pub_key: Option<&str>) -> serde_json::Value {
+fn referral_bdo(svg: String, payout: Option<&PayoutDestination>) -> serde_json::Value {
     let mut record = serde_json::json!({ "svg": svg });
-    if let Some(key) = payout_pub_key {
+    if let Some(destination) = payout {
         let object = record.as_object_mut().expect("referral record is an object");
-        object.insert("payoutPubKey".to_string(), serde_json::Value::String(key.to_string()));
-        // Says how to interpret the key without a reader having to guess.
-        object.insert("payoutProcessor".to_string(), serde_json::Value::String("addie-stripe".to_string()));
+        // Field names match Addie's payee shape, so settling a payout later
+        // is a copy rather than a translation. `processor` says how to read
+        // the pair instead of leaving a reader to infer it.
+        object.insert(
+            "payout".to_string(),
+            serde_json::json!({
+                "processor": "addie-stripe",
+                "pubKey": destination.pub_key,
+                "addieURL": destination.addie_url,
+            }),
+        );
     }
     record
 }
@@ -1099,12 +1109,12 @@ fn render_referral_svg(app_store_url: &str) -> String {
 /// static and never needs re-publishing.
 #[tauri::command]
 async fn get_or_create_referral_link(app: tauri::AppHandle) -> Result<String, String> {
-    let payout_pub_key = shared_payout_pub_key(&app).await;
+    let payout = shared_payout_destination(&app).await;
 
     let mut links = read_referral_links(&app);
     if let Some(link) = links.get(GATEWAY_ENV).cloned() {
         // Nothing changed — hand back the link already in circulation.
-        if link.payout_pub_key == payout_pub_key {
+        if link.payout == payout {
             return Ok(link.share_url.clone());
         }
 
@@ -1114,13 +1124,13 @@ async fn get_or_create_referral_link(app: tauri::AppHandle) -> Result<String, St
         // minting a new link the old shares would never point at.
         let sessionless = load_or_create_bdo_sessionless(&app, "referral")?;
         let client = BDO::new(Some(GATEWAY_BDO_URL.to_string()), Some(sessionless));
-        let record = referral_bdo(render_referral_svg(APP_STORE_URL), payout_pub_key.as_deref());
+        let record = referral_bdo(render_referral_svg(APP_STORE_URL), payout.as_ref());
         client
             .update_bdo(&link.uuid, REFERRAL_HASH, &record, &true)
             .await
             .map_err(|e| e.to_string())?;
 
-        let updated = ReferralLink { payout_pub_key, ..link };
+        let updated = ReferralLink { payout, ..link };
         let share_url = updated.share_url.clone();
         links.insert(GATEWAY_ENV.to_string(), updated);
         write_referral_links(&app, &links)?;
@@ -1130,7 +1140,7 @@ async fn get_or_create_referral_link(app: tauri::AppHandle) -> Result<String, St
     let sessionless = load_or_create_bdo_sessionless(&app, "referral")?;
     let client = BDO::new(Some(GATEWAY_BDO_URL.to_string()), Some(sessionless));
 
-    let card_json = referral_bdo(render_referral_svg(APP_STORE_URL), payout_pub_key.as_deref());
+    let card_json = referral_bdo(render_referral_svg(APP_STORE_URL), payout.as_ref());
 
     let user = client
         .create_user(REFERRAL_HASH, &card_json, &true)
@@ -1147,7 +1157,7 @@ async fn get_or_create_referral_link(app: tauri::AppHandle) -> Result<String, St
         "{SAVAGE_URL}user/{uuid}/bdo?timestamp={timestamp}&hash={REFERRAL_HASH}&signature={signature}"
     );
 
-    let link = ReferralLink { uuid, share_url: share_url.clone(), payout_pub_key };
+    let link = ReferralLink { uuid, share_url: share_url.clone(), payout };
     links.insert(GATEWAY_ENV.to_string(), link);
     write_referral_links(&app, &links)?;
     Ok(share_url)
@@ -1444,6 +1454,25 @@ pub struct Address {
     pub zip: String,
 }
 
+/// Where this person's payouts go.
+///
+/// The pair travels as a unit on purpose. Once Addie is distributed — which
+/// production is — a public key alone is ambiguous: it only means anything
+/// resolved against the Addie instance holding that account. Addie's own
+/// payee shape carries the same two fields (`pubKey` + `addieURL`, see
+/// buildPayeeMetadata and /verify-payee in its stripe processor), so this
+/// can be lifted straight into a payout request. Keeping them in one struct
+/// also makes it impossible to update half the tuple and route money at a
+/// key the wrong base has never heard of.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PayoutDestination {
+    pub pub_key: String,
+    /// Spelled `addieURL` to match Addie's own field, not Rust convention.
+    #[serde(rename = "addieURL")]
+    pub addie_url: String,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct CanonicalProfile {
@@ -1463,12 +1492,10 @@ pub struct CanonicalProfile {
     /// getpayed-owned. Present here so linkitylink round-trips it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stripe_connected: Option<bool>,
-    /// getpayed-owned. The Addie public key payouts are routed to — Addie
-    /// resolves it to a Stripe connected account at transfer time. Read
-    /// here (not written) so a referral card can name who to pay; carried
-    /// forward unchanged on save.
+    /// getpayed-owned. Where payouts land; read here (not written) so a
+    /// referral card can name who to pay. Carried forward unchanged on save.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub payout_pub_key: Option<String>,
+    pub payout: Option<PayoutDestination>,
     pub updated_at: Option<String>,
 }
 
@@ -1513,7 +1540,7 @@ async fn save_canonical_profile(app: tauri::AppHandle, mut profile: CanonicalPro
         if profile.service_zip.is_none() { profile.service_zip = existing.service_zip; }
         if profile.idothis_rate_cents.is_none() { profile.idothis_rate_cents = existing.idothis_rate_cents; }
         if profile.stripe_connected.is_none() { profile.stripe_connected = existing.stripe_connected; }
-        if profile.payout_pub_key.is_none() { profile.payout_pub_key = existing.payout_pub_key; }
+        if profile.payout.is_none() { profile.payout = existing.payout; }
     }
 
     let mut deduped: Vec<CanonicalField> = Vec::new();
@@ -1582,7 +1609,7 @@ mod tests {
             "photo": null,
             "fields": [{"slug":"name","name":"Name","value":"Ada"}],
             "stripeConnected": true,
-            "payoutPubKey": "02c956a0ea38fbff0f33a538df041b5d135a6411c34f390b2203effefd5160fd2f",
+            "payout": {"pubKey": "02c956a0ea38fbff0f33a538df041b5d135a6411c34f390b2203effefd5160fd2f", "addieURL": "https://dev.8as.world/addie/"},
             "idothisRateCents": 9000,
             "someFutureField": {"nested": true},
             "updatedAt": "1790000000000"
@@ -1590,21 +1617,21 @@ mod tests {
 
         let profile: CanonicalProfile =
             serde_json::from_str(written_by_getpayed).expect("getpayed's profile should parse here");
-        assert_eq!(
-            profile.payout_pub_key.as_deref(),
-            Some("02c956a0ea38fbff0f33a538df041b5d135a6411c34f390b2203effefd5160fd2f")
-        );
+        let payout = profile.payout.clone().expect("payout destination should parse");
+        assert_eq!(payout.pub_key, "02c956a0ea38fbff0f33a538df041b5d135a6411c34f390b2203effefd5160fd2f");
+        // Both halves or neither — a key without its base routes nowhere.
+        assert_eq!(payout.addie_url, "https://dev.8as.world/addie/");
         assert_eq!(profile.stripe_connected, Some(true));
         assert_eq!(profile.idothis_rate_cents, Some(9000));
 
         // Re-serializing keeps the camelCase spelling the other apps read.
         let json = serde_json::to_string(&profile).unwrap();
-        assert!(json.contains("\"payoutPubKey\""), "got {json}");
+        assert!(json.contains("\"pubKey\"") && json.contains("\"addieURL\""), "got {json}");
 
         // A profile with no key at all must parse too — most users have
         // never connected Stripe.
         let no_key: CanonicalProfile = serde_json::from_str(r#"{"fields":[]}"#).unwrap();
-        assert_eq!(no_key.payout_pub_key, None);
+        assert_eq!(no_key.payout, None);
     }
 
     /// A referral record names its payee only when there is one, and says
@@ -1612,16 +1639,21 @@ mod tests {
     /// reads these fields, so their spelling is a contract.
     #[test]
     fn referral_record_names_the_payee_when_known() {
-        let with_payee = referral_bdo("<svg/>".to_string(), Some("02abc"));
-        assert_eq!(with_payee["payoutPubKey"], "02abc");
-        assert_eq!(with_payee["payoutProcessor"], "addie-stripe");
+        let destination = PayoutDestination {
+            pub_key: "02abc".to_string(),
+            addie_url: "https://dev.8as.world/addie/".to_string(),
+        };
+        let with_payee = referral_bdo("<svg/>".to_string(), Some(&destination));
+        assert_eq!(with_payee["payout"]["pubKey"], "02abc");
+        // The base is what makes the key resolvable once Addie is distributed.
+        assert_eq!(with_payee["payout"]["addieURL"], "https://dev.8as.world/addie/");
+        assert_eq!(with_payee["payout"]["processor"], "addie-stripe");
         // The card itself still has to be there — savage renders this field
         // and ignores the rest.
         assert_eq!(with_payee["svg"], "<svg/>");
 
         let without = referral_bdo("<svg/>".to_string(), None);
-        assert!(without.get("payoutPubKey").is_none());
-        assert!(without.get("payoutProcessor").is_none());
+        assert!(without.get("payout").is_none());
         assert_eq!(without["svg"], "<svg/>");
     }
 
