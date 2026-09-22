@@ -1003,6 +1003,13 @@ struct ReferralLink {
     /// place. Absent on links published before referrals named a payee.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     payout: Option<PayoutDestination>,
+    /// The App Store URL baked into the published card's "Get" button.
+    /// Tracked because the card is published once and cached forever: links
+    /// shared while this was still a placeholder would keep pointing at a
+    /// listing that doesn't exist. `None` means published before this was
+    /// tracked — i.e. almost certainly the placeholder, so it gets rewritten.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    app_store_url: Option<String>,
 }
 /// The payout destination getpayed wrote to the shared profile, if the user
 /// has connected Stripe there. Best-effort: no destination simply means a
@@ -1114,14 +1121,15 @@ async fn get_or_create_referral_link(app: tauri::AppHandle) -> Result<String, St
     let mut links = read_referral_links(&app);
     if let Some(link) = links.get(GATEWAY_ENV).cloned() {
         // Nothing changed — hand back the link already in circulation.
-        if link.payout == payout {
+        if link.payout == payout && link.app_store_url.as_deref() == Some(APP_STORE_URL) {
             return Ok(link.share_url.clone());
         }
 
-        // The user connected Stripe (or switched payout identity) after this
-        // referral was published. Update the record IN PLACE so every copy
-        // of the link already out there starts naming the payee, rather than
-        // minting a new link the old shares would never point at.
+        // Something the published card asserts has changed since: the user
+        // connected Stripe (or switched payout identity), or the app got a
+        // real App Store listing. Update the record IN PLACE so every copy
+        // of the link already out there is corrected, rather than minting a
+        // new link the old shares would never point at.
         let sessionless = load_or_create_bdo_sessionless(&app, "referral")?;
         let client = BDO::new(Some(GATEWAY_BDO_URL.to_string()), Some(sessionless));
         let record = referral_bdo(render_referral_svg(APP_STORE_URL), payout.as_ref());
@@ -1130,7 +1138,7 @@ async fn get_or_create_referral_link(app: tauri::AppHandle) -> Result<String, St
             .await
             .map_err(|e| e.to_string())?;
 
-        let updated = ReferralLink { payout, ..link };
+        let updated = ReferralLink { payout, app_store_url: Some(APP_STORE_URL.to_string()), ..link };
         let share_url = updated.share_url.clone();
         links.insert(GATEWAY_ENV.to_string(), updated);
         write_referral_links(&app, &links)?;
@@ -1157,7 +1165,12 @@ async fn get_or_create_referral_link(app: tauri::AppHandle) -> Result<String, St
         "{SAVAGE_URL}user/{uuid}/bdo?timestamp={timestamp}&hash={REFERRAL_HASH}&signature={signature}"
     );
 
-    let link = ReferralLink { uuid, share_url: share_url.clone(), payout };
+    let link = ReferralLink {
+        uuid,
+        share_url: share_url.clone(),
+        payout,
+        app_store_url: Some(APP_STORE_URL.to_string()),
+    };
     links.insert(GATEWAY_ENV.to_string(), link);
     write_referral_links(&app, &links)?;
     Ok(share_url)
