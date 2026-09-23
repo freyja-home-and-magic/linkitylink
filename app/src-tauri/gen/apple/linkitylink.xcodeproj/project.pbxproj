@@ -28,6 +28,7 @@
 		22ACDD15677A51B204317035 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		2C33AE3E14D913A52D266776 /* bindings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bindings.h; sourceTree = "<group>"; };
 		3095AE8431F69E72D3401516 /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
+		3F2722E33B5BBE9DB0896A5A /* main.rs */ = {isa = PBXFileReference; path = main.rs; sourceTree = "<group>"; };
 		416CB96E5D3402C36F806B88 /* linkitylink_iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = linkitylink_iOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		5D3F07C27BF71B51FE26C11A /* linkitylink_iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = linkitylink_iOS.entitlements; sourceTree = "<group>"; };
 		74C76C0C1F967541DE5BE5CD /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -106,6 +107,7 @@
 			isa = PBXGroup;
 			children = (
 				10B994F021F8970CE472621D /* lib.rs */,
+				3F2722E33B5BBE9DB0896A5A /* main.rs */,
 			);
 			name = src;
 			path = ../../src;
