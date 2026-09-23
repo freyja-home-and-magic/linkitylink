@@ -244,14 +244,25 @@ function renderLinkEntries() {
             const fields = document.createElement('div');
             fields.className = 'link-entry-edit-fields';
 
+            // iOS capitalises the first letter of a text field by default,
+            // which is wrong for both of these: a URL is case-sensitive after
+            // the host, and a label is usually a lowercase brand ("github",
+            // "etsy shop"). Matches the socials handle input below.
             const labelInput = document.createElement('input');
             labelInput.type = 'text';
+            labelInput.autocapitalize = 'none';
+            labelInput.autocomplete = 'off';
+            labelInput.spellcheck = false;
             labelInput.placeholder = 'Label';
             labelInput.maxLength = 40;
             labelInput.value = entry.label;
 
             const urlInput = document.createElement('input');
             urlInput.type = 'text';
+            urlInput.autocapitalize = 'none';
+            urlInput.autocomplete = 'off';
+            urlInput.spellcheck = false;
+            urlInput.inputMode = 'url';
             urlInput.placeholder = 'URL';
             urlInput.value = entry.url;
 

@@ -63,8 +63,10 @@
                 <ul class="link-entries" id="link-entries"></ul>
 
                 <div class="link-entry-form">
-                    <input type="text" id="new-link-label" placeholder="Label (e.g. Portfolio)" maxlength="40">
-                    <input type="text" id="new-link-url" placeholder="URL">
+                    <input type="text" id="new-link-label" placeholder="Label (e.g. portfolio)" maxlength="40"
+                           autocapitalize="none" autocomplete="off" spellcheck="false">
+                    <input type="text" id="new-link-url" placeholder="URL"
+                           autocapitalize="none" autocomplete="off" spellcheck="false" inputmode="url">
                     <button type="button" class="btn btn-secondary" id="add-link-btn">Add Link</button>
                 </div>
                 <p class="hint hint-warning" id="link-limit-hint" hidden>Up to 16 links — remove one to add another.</p>
