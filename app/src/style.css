@@ -763,9 +763,9 @@ textarea {
 }
 
 /* ── Card tile controls ──────────────────────────────────────────────────────
-   A card's two actions live on the tile itself, so the grid is the place you
-   work from rather than a menu of links into detail views. Share is a quarter
-   disc in the bottom-left; edit is the whole tile underneath it.
+   Share is a quarter disc in the bottom-left, so the commonest thing you do
+   with a card takes one tap from the grid. The rest of the tile opens the
+   card, where editing and the published link live.
 
    The arc is one square anchored bottom-left with its top-right corner fully
    rounded. border-radius clips hit testing as well as painting, so a tap
@@ -781,7 +781,7 @@ textarea {
     display: block;
 }
 
-.tile-edit {
+.tile-open {
     position: absolute;
     inset: 0;
     z-index: 1;
@@ -799,7 +799,7 @@ textarea {
     cursor: pointer;
 }
 
-.tile-edit-label {
+.tile-open-label {
     position: absolute;
     top: 10px;
     right: 11px;
@@ -842,4 +842,4 @@ textarea {
 }
 
 .tile-share:active { background: var(--green-dark, #1F4A3E); }
-.tile-edit:active .tile-edit-label { color: var(--fg); }
+.tile-open:active .tile-open-label { color: var(--fg); }

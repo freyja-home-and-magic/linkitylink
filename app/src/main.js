@@ -679,9 +679,9 @@ function renderSocialDisclosure() {
 const ICON_SHARE =
     '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
     + '<path d="M12 16V3"/><path d="M7 8l5-5 5 5"/><path d="M4 14v5a2 2 0 002 2h12a2 2 0 002-2v-5"/></svg>';
-const ICON_EDIT =
-    '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
-    + '<path d="M4 20h4L20 8l-4-4L4 16v4z"/></svg>';
+const ICON_OPEN =
+    '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    + '<path d="M9 6l6 6-6 6"/></svg>';
 
 function renderCardsGrid() {
     cardsGrid.innerHTML = '';
@@ -692,31 +692,32 @@ function renderCardsGrid() {
         const tile = document.createElement('div');
         tile.className = 'card-tile filled';
 
-        // Edit fills the tile and sits under the share disc, so the card's
-        // own identity is part of what you tap to edit it.
-        const editBtn = document.createElement('button');
-        editBtn.type = 'button';
-        editBtn.className = 'tile-edit';
-        editBtn.setAttribute('aria-label', `Edit ${c.name || 'Untitled'}`);
+        // Opening the card fills the tile and sits under the share disc, so
+        // the card's own identity is what you tap to open it. Editing stays
+        // one step further in, on the card's own view.
+        const openBtn = document.createElement('button');
+        openBtn.type = 'button';
+        openBtn.className = 'tile-open';
+        openBtn.setAttribute('aria-label', `Open ${c.name || 'Untitled'}`);
 
         const avatar = document.createElement('div');
         avatar.className = 'avatar';
         setAvatarContent(avatar, c.photo, c.name || '');
-        editBtn.appendChild(avatar);
+        openBtn.appendChild(avatar);
 
         const name = document.createElement('span');
         name.className = 'card-tile-name';
         name.textContent = c.name || 'Untitled';
-        editBtn.appendChild(name);
+        openBtn.appendChild(name);
 
-        const editLabel = document.createElement('span');
-        editLabel.className = 'tile-edit-label';
-        editLabel.innerHTML = ICON_EDIT;
-        editLabel.appendChild(document.createTextNode('Edit'));
-        editBtn.appendChild(editLabel);
+        const openLabel = document.createElement('span');
+        openLabel.className = 'tile-open-label';
+        openLabel.appendChild(document.createTextNode('Open'));
+        openLabel.insertAdjacentHTML('beforeend', ICON_OPEN);
+        openBtn.appendChild(openLabel);
 
-        editBtn.addEventListener('click', () => openEditForCard(c));
-        tile.appendChild(editBtn);
+        openBtn.addEventListener('click', () => openCard(c));
+        tile.appendChild(openBtn);
 
         const shareBtnTile = document.createElement('button');
         shareBtnTile.type = 'button';
