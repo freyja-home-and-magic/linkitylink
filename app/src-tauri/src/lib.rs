@@ -1207,12 +1207,12 @@ async fn import_links(url: String) -> Result<Vec<LinkEntry>, String> {
     let status = response.status();
     if status == reqwest::StatusCode::FORBIDDEN || status == reqwest::StatusCode::TOO_MANY_REQUESTS {
         return Err(format!(
-            "{host} blocks automated access, so it can't be imported directly — copy your links over manually."
+            "{host} blocks automated access, so it can't be imported directly. Copy your links over manually."
         ));
     }
     if !status.is_success() {
         return Err(format!(
-            "{host} returned an error ({}) — double-check the URL.",
+            "{host} returned an error ({}). Double-check the URL.",
             status.as_u16()
         ));
     }
@@ -1227,7 +1227,7 @@ async fn import_links(url: String) -> Result<Vec<LinkEntry>, String> {
 
     if entries.is_empty() {
         return Err(format!(
-            "No links found on that {host} page — it may use a format we don't support yet."
+            "No links found on that {host} page. It may use a format we don't support yet."
         ));
     }
     Ok(entries)
@@ -1384,7 +1384,7 @@ pub struct ImportFromBizbuzResult {
 #[tauri::command]
 async fn import_from_bizbuz(app: tauri::AppHandle) -> Result<ImportFromBizbuzResult, String> {
     let raw = tauri_plugin_app_group::read_value_sync(&app, "bizbuz.profile")?.ok_or_else(|| {
-        "BizBuz hasn't shared anything yet — open BizBuz and tap \u{201c}Share to App Group\u{201d} first.".to_string()
+        "BizBuz hasn't shared anything yet. Open BizBuz and tap \u{201c}Share to App Group\u{201d} first.".to_string()
     })?;
     let profile: BizbuzProfileMirror =
         serde_json::from_str(&raw).map_err(|e| format!("Couldn't read BizBuz's shared profile: {e}"))?;

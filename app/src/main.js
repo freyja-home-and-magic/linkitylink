@@ -23,7 +23,7 @@ const newLinkLabel = document.getElementById('new-link-label');
 const newLinkUrl = document.getElementById('new-link-url');
 const addLinkBtn = document.getElementById('add-link-btn');
 const linkLimitHint = document.getElementById('link-limit-hint');
-linkLimitHint.textContent = `Up to ${MAX_LINKS} links — remove one to add another.`;
+linkLimitHint.textContent = `Up to ${MAX_LINKS} links. Remove one to add another.`;
 const importBizbuzBtn = document.getElementById('import-bizbuz-btn');
 const socialsGrid = document.getElementById('socials-grid');
 const cardSocialsEl = document.getElementById('card-socials');
@@ -374,7 +374,7 @@ function takeNewLink() {
         return false;
     }
     if (pendingLinks.length >= MAX_LINKS) {
-        setStatus(`Up to ${MAX_LINKS} links — remove one to add another.`);
+        setStatus(`Up to ${MAX_LINKS} links. Remove one to add another.`);
         return false;
     }
 
@@ -436,7 +436,7 @@ async function performUrlImport(url) {
         if (totalAdded === 0) {
             setStatus('Nothing new to import from that URL.');
         } else if (toAdd.length < dedupedNonSocial.length) {
-            setStatus(`Imported ${totalAdded} — some links were skipped to stay under the ${MAX_LINKS}-link limit.`);
+            setStatus(`Imported ${totalAdded}. Some links were skipped to stay under the ${MAX_LINKS}-link limit.`);
         } else {
             setStatus(`Imported ${totalAdded} item${totalAdded === 1 ? '' : 's'}!`);
         }
@@ -528,8 +528,8 @@ importBizbuzBtn.addEventListener('click', async () => {
         const notes = [];
         const total = toAdd.length + socialsAdded;
         if (total) notes.push(`Imported ${total} item${total === 1 ? '' : 's'} from BizBuz`);
-        if (result.skippedFields.length) notes.push(`${result.skippedFields.length} field${result.skippedFields.length === 1 ? '' : 's'} couldn't be imported (${result.skippedFields.join(', ')} — no equivalent here)`);
-        setStatus(notes.length ? notes.join(' — ') : 'Nothing new to import from BizBuz.');
+        if (result.skippedFields.length) notes.push(`${result.skippedFields.length} field${result.skippedFields.length === 1 ? '' : 's'} couldn't be imported (${result.skippedFields.join(', ')}: no equivalent here)`);
+        setStatus(notes.length ? notes.join('; ') : 'Nothing new to import from BizBuz.');
     } catch (err) {
         setStatus(`${err}`); // Rust already returns a complete, user-facing sentence
     } finally {
@@ -771,7 +771,7 @@ function renderCardView(c) {
             a.rel = 'noopener noreferrer';
             a.style.color = social.hex;
             const handle = extractHandleFrom(entry.url, slug);
-            a.title = handle ? `${social.label} — @${handle}` : social.label;
+            a.title = handle ? `${social.label}: @${handle}` : social.label;
             a.setAttribute('aria-label', a.title);
             a.innerHTML = socialIconHtml(social);
             cardSocialsEl.appendChild(a);
@@ -855,7 +855,7 @@ function renderShareState(c) {
     if (isShared) {
         shareAppGroupHint.textContent = 'Other apps import this card. Tap to push your latest edits.';
     } else if (sharedCardId) {
-        shareAppGroupHint.textContent = 'Another card is shared right now — this will replace it.';
+        shareAppGroupHint.textContent = 'Another card is shared right now. This will replace it.';
     } else {
         shareAppGroupHint.textContent = 'Let BizBuz and your other apps import this card.';
     }
@@ -869,7 +869,7 @@ shareAppGroupBtn.addEventListener('click', async () => {
         sharedCardId = activeCard.id;
         renderShareState(activeCard);
         renderCardsGrid();
-        setStatus('Shared — BizBuz can now import this card.');
+        setStatus('Shared. BizBuz can now import this card.');
     } catch (err) {
         setStatus(`Couldn't share: ${err}`);
     } finally {
@@ -1078,7 +1078,7 @@ resetAllBtn.addEventListener('click', async () => {
         renderCardsGrid();
         showView('cards');
         if (cards.length === 0) openNewCardForm();
-        setStatus('Deleted — nothing of yours is published any more.');
+        setStatus('Deleted. Nothing of yours is published any more.');
     } catch (err) {
         setStatus(`${err}`);
     } finally {
@@ -1255,7 +1255,7 @@ function takeNewProfileField() {
         return false;
     }
     if (pendingProfileFields.length >= MAX_PROFILE_FIELDS) {
-        setStatus(`Up to ${MAX_PROFILE_FIELDS} fields — remove one to add "${name}".`);
+        setStatus(`Up to ${MAX_PROFILE_FIELDS} fields. Remove one to add "${name}".`);
         return false;
     }
 
@@ -1374,7 +1374,7 @@ profileForm.addEventListener('submit', async (e) => {
     if (!takeNewProfileField()) return;
     try {
         await core.invoke('save_canonical_profile', { profile: canonicalProfileFromForm() });
-        setStatus('Profile saved — shared across your apps.');
+        setStatus('Profile saved. It is shared across your apps.');
         showView(preProfileView);
     } catch (err) {
         setStatus(`Couldn't save: ${err}`);
