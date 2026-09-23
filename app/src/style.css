@@ -364,9 +364,9 @@ textarea {
 }
 
 .card-tile.filled .avatar {
-    width: 56px;
-    height: 56px;
-    font-size: 20px;
+    width: 40px;
+    height: 40px;
+    font-size: 15px;
     margin: 0;
     box-shadow: none;
 }
@@ -375,7 +375,7 @@ textarea {
     font-size: 13px;
     font-weight: 600;
     color: var(--fg);
-    text-align: center;
+    text-align: left;
     max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -385,6 +385,13 @@ textarea {
 /* Marks the one card currently in the App Group (what BizBuz imports).
    Sits inside the tile's flex column, under the name. */
 .card-tile-badge {
+    /* Tucked under the edit label: the disc's arc runs behind the bottom
+       corners, and this badge's fill is translucent, so it would show the
+       arc through itself down there. */
+    position: absolute;
+    right: 11px;
+    top: 32px;
+    z-index: 3;
     font-size: 10px;
     font-weight: 600;
     letter-spacing: 0.04em;
@@ -754,3 +761,85 @@ textarea {
 .status-msg.visible {
     opacity: 1;
 }
+
+/* ── Card tile controls ──────────────────────────────────────────────────────
+   A card's two actions live on the tile itself, so the grid is the place you
+   work from rather than a menu of links into detail views. Share is a quarter
+   disc in the bottom-left; edit is the whole tile underneath it.
+
+   The arc is one square anchored bottom-left with its top-right corner fully
+   rounded. border-radius clips hit testing as well as painting, so a tap
+   outside the arc falls through to the edit button below: no dead zone, and
+   no JS geometry. Verified with elementFromPoint across the tile.
+
+   The tile itself keeps `overflow: hidden`, which trims the disc's square
+   bottom-left corner to the tile's own 20px radius. */
+.card-tile.filled {
+    position: relative;
+    overflow: hidden;
+    padding: 0;
+    display: block;
+}
+
+.tile-edit {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 12px;
+    background: none;
+    border: none;
+    font-family: inherit;
+    color: inherit;
+    cursor: pointer;
+}
+
+.tile-edit-label {
+    position: absolute;
+    top: 10px;
+    right: 11px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--white-70);
+}
+
+.tile-share {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    z-index: 2;
+    /* Big enough to hold its label and be an easy thumb target, small enough
+       to leave the card's name and the edit affordance clear of it. */
+    width: 54%;
+    height: 54%;
+    border: none;
+    border-top-right-radius: 100%;
+    background: var(--green);
+    /* Glacier white rather than the mint accent: this sits on a filled
+       evergreen ground in both light and dark mode, and needs to read. */
+    color: #F7F9FA;
+    font-family: inherit;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-end;
+    gap: 2px;
+    padding: 0 0 10px 11px;
+}
+
+.tile-share-label {
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.tile-share:active { background: var(--green-dark, #1F4A3E); }
+.tile-edit:active .tile-edit-label { color: var(--fg); }
