@@ -69,9 +69,12 @@ A third, independent record — separate from `cards`/`cards.json` entirely — 
 | Field | Owned by | LinkityLink's job |
 |---|---|---|
 | `photo`, `fields` | shared — each app has an editor | edit |
-| `address` | Gettit | carry forward |
+| `address` | Gettit* | carry forward |
 | `idothisCategories`, `serviceZip`, `idothisRateCents` | idothis | carry forward |
 | `stripeConnected`, `payout` | getpayed | carry forward |
+
+\*Gettit and Letemcook are named in these docs as family members but are
+**not checked out at `~/Work`**, so nothing here was verified against them. Treat their ownership of `address` as inherited documentation, and assume the four apps in this workspace are the ones that actually have to agree.
 
 `payout` is a `{pubKey, addieURL}` pair and travels as a unit — addie is distributed, so a pubkey alone only means something against the instance holding that account. LinkityLink reads it in `get_or_create_referral_link`, whose card asserts where money goes.
 
