@@ -947,6 +947,17 @@ async fn publish_card(app: tauri::AppHandle, card_id: String) -> Result<LinkCard
         }),
     );
 
+    // savage's page for this card carries a "make your own" button that goes
+    // through its tap counter. Taps on it count toward the owner's referral
+    // share, the same as taps on their invite card, but only once the
+    // program is live and they've set up payouts in GetPayed. Cards are
+    // republished on every launch, so connecting later reaches them all.
+    if REFERRALS_LIVE {
+        if let Some(destination) = shared_payout_destination(&app).await {
+            card_obj.insert("payout".to_string(), payout_json(&destination));
+        }
+    }
+
     let existing_uuid = store.cards[index].bdo_uuid_by_env.get(GATEWAY_ENV).cloned();
 
     let uuid = if let Some(uuid) = existing_uuid {
@@ -1088,19 +1099,21 @@ fn referral_bdo(svg: String, payout: Option<&PayoutDestination>) -> serde_json::
     let mut record = serde_json::json!({ "svg": svg });
     if let Some(destination) = payout {
         let object = record.as_object_mut().expect("referral record is an object");
-        // Field names match Addie's payee shape, so settling a payout later
-        // is a copy rather than a translation. `processor` says how to read
-        // the pair instead of leaving a reader to infer it.
-        object.insert(
-            "payout".to_string(),
-            serde_json::json!({
-                "processor": "addie-stripe",
-                "pubKey": destination.pub_key,
-                "addieURL": destination.addie_url,
-            }),
-        );
+        object.insert("payout".to_string(), payout_json(destination));
     }
     record
+}
+
+/// A payout destination as published on a card. Field names match Addie's
+/// payee shape, so settling a payout later is a copy rather than a
+/// translation. `processor` says how to read the pair instead of leaving a
+/// reader to infer it.
+fn payout_json(destination: &PayoutDestination) -> serde_json::Value {
+    serde_json::json!({
+        "processor": "addie-stripe",
+        "pubKey": destination.pub_key,
+        "addieURL": destination.addie_url,
+    })
 }
 
 
