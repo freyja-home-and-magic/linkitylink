@@ -344,6 +344,32 @@ textarea {
     width: 100%;
 }
 
+.referral-earn {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+/* display:flex above would otherwise override the hidden attribute. */
+.referral-earn[hidden] {
+    display: none;
+}
+
+.referral-earn-title {
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.referral-stats {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.referral-stats:empty {
+    display: none;
+}
+
 .card-tile {
     aspect-ratio: 1;
     border-radius: 20px;

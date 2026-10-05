@@ -1011,7 +1011,34 @@ fn offering_footer(cx: impl std::fmt::Display, y: impl std::fmt::Display) -> Str
 
 /// Bump when the invite card's design changes, so links already shared get
 /// the new version in place (see get_or_create_referral_link).
-const REFERRAL_DESIGN: u32 = 2;
+const REFERRAL_DESIGN: u32 = 2 + REFERRALS_LIVE as u32;
+
+/// The HomeFront referral program: each month, half of what this app earns
+/// is shared with the people whose invite cards get tapped, up to $50 each
+/// (savage counts the taps and its referral-payouts script pays them). It
+/// pays out through the Stripe account people connect in GetPayed, so it
+/// stays off until GetPayed is on the App Store: put its listing here to
+/// switch the program on. That also bumps REFERRAL_DESIGN, so every invite
+/// card already shared is rewritten to route its button through the counter.
+const GETPAYED_APP_STORE_URL: Option<&str> = None;
+const REFERRALS_LIVE: bool = GETPAYED_APP_STORE_URL.is_some();
+
+/// Where an invite card's "Get" button points: through savage's tap counter
+/// when the program is live (carrying the card's own signed query, so savage
+/// can check the card is real), which then redirects to the App Store; and
+/// straight to the App Store otherwise.
+fn referral_button_href(share_url: &str, uuid: &str) -> String {
+    if REFERRALS_LIVE {
+        share_url.replacen(&format!("user/{uuid}/bdo?"), &format!("r/{uuid}?"), 1)
+    } else {
+        APP_STORE_URL.to_string()
+    }
+}
+
+/// savage's taps-and-payouts endpoint for an invite card.
+fn referral_stats_url(share_url: &str, uuid: &str) -> String {
+    share_url.replacen(&format!("user/{uuid}/bdo?"), &format!("r/{uuid}/stats?"), 1)
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -1138,6 +1165,34 @@ fn render_referral_svg(app_store_url: &str) -> String {
 /// called (mirrors `publish_card` exactly), and reusing the result (from
 /// local storage) on every call after that, since the referral svg is
 /// static and never needs re-publishing.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReferralStatus {
+    /// The program is switched on (GetPayed is on the App Store).
+    live: bool,
+    /// Payouts are set up in GetPayed, so this install can earn.
+    connected: bool,
+    /// GetPayed's App Store listing, for the "set up payouts" button.
+    getpayed_url: Option<String>,
+    /// savage's taps-and-payouts endpoint for this install's invite card,
+    /// once it has one. Fetched by the page itself.
+    stats_url: Option<String>,
+}
+
+/// What the share screen should show: an invitation to connect payouts in
+/// GetPayed, or the invite link with what it has earned.
+#[tauri::command]
+async fn referral_status(app: tauri::AppHandle) -> ReferralStatus {
+    let connected = shared_payout_destination(&app).await.is_some();
+    let links = read_referral_links(&app);
+    ReferralStatus {
+        live: REFERRALS_LIVE,
+        connected,
+        getpayed_url: GETPAYED_APP_STORE_URL.map(str::to_string),
+        stats_url: links.get(GATEWAY_ENV).map(|l| referral_stats_url(&l.share_url, &l.uuid)),
+    }
+}
+
 #[tauri::command]
 async fn get_or_create_referral_link(app: tauri::AppHandle) -> Result<String, String> {
     let payout = shared_payout_destination(&app).await;
@@ -1156,7 +1211,7 @@ async fn get_or_create_referral_link(app: tauri::AppHandle) -> Result<String, St
         // new link the old shares would never point at.
         let sessionless = load_or_create_bdo_sessionless(&app, "referral")?;
         let client = BDO::new(Some(GATEWAY_BDO_URL.to_string()), Some(sessionless));
-        let record = referral_bdo(render_referral_svg(APP_STORE_URL), payout.as_ref());
+        let record = referral_bdo(render_referral_svg(&referral_button_href(&link.share_url, &link.uuid)), payout.as_ref());
         client
             .update_bdo(&link.uuid, REFERRAL_HASH, &record, &true)
             .await
@@ -1188,6 +1243,16 @@ async fn get_or_create_referral_link(app: tauri::AppHandle) -> Result<String, St
     let share_url = format!(
         "{SAVAGE_URL}user/{uuid}/bdo?timestamp={timestamp}&hash={REFERRAL_HASH}&signature={signature}"
     );
+
+    // The button can only route through the tap counter once the card has a
+    // uuid and a signed link, so a live program rewrites it straight away.
+    if REFERRALS_LIVE {
+        let record = referral_bdo(render_referral_svg(&referral_button_href(&share_url, &uuid)), payout.as_ref());
+        client
+            .update_bdo(&uuid, REFERRAL_HASH, &record, &true)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
 
     let link = ReferralLink {
         uuid,
@@ -1617,6 +1682,7 @@ pub fn run() {
             publish_card,
             import_links,
             get_or_create_referral_link,
+            referral_status,
             share_card_to_app_group,
             get_shared_card_id,
             reset_all_data,
@@ -1751,5 +1817,33 @@ mod offering_footer_tests {
     fn footer_is_a_link() {
         let f = offering_footer(200, 400);
         assert!(f.starts_with(r#"<a href="https://homeventory.club/apps"><text x="200" y="400""#), "{f}");
+    }
+}
+
+#[cfg(test)]
+mod referral_program_tests {
+    use super::*;
+
+    const SHARE: &str = "https://prod.8as.world/savage/user/abc-123/bdo?timestamp=1&hash=x-referral&signature=ff";
+
+    #[test]
+    fn stats_url_is_the_same_signed_query() {
+        assert_eq!(
+            referral_stats_url(SHARE, "abc-123"),
+            "https://prod.8as.world/savage/r/abc-123/stats?timestamp=1&hash=x-referral&signature=ff"
+        );
+    }
+
+    #[test]
+    fn button_goes_straight_to_the_store_until_the_program_is_live() {
+        assert!(!REFERRALS_LIVE, "switch on deliberately, once GetPayed is listed");
+        assert_eq!(referral_button_href(SHARE, "abc-123"), APP_STORE_URL);
+        assert_eq!(REFERRAL_DESIGN, 2);
+    }
+
+    #[test]
+    fn a_signed_href_is_escaped_in_the_card() {
+        let svg = render_referral_svg("https://prod.8as.world/savage/r/abc-123?timestamp=1&hash=x&signature=ff");
+        assert!(svg.contains("?timestamp=1&amp;hash=x&amp;signature=ff"), "{svg}");
     }
 }

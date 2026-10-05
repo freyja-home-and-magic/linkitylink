@@ -1159,11 +1159,80 @@ referralShareBtn.addEventListener('click', async () => {
     try {
         const url = await core.invoke('get_or_create_referral_link');
         await core.invoke('plugin:share-sheet|share_text', { text: url });
+        // Sharing creates the invite card the first time, so there are
+        // stats to show from now on.
+        refreshReferral();
     } catch (err) {
         setStatus(`Couldn't share: ${err}`);
     } finally {
         referralShareBtn.disabled = false;
     }
+});
+
+// ── Referral program ─────────────────────────────────────────────────────────
+//
+// Once switched on (see referral_status in lib.rs), people who have set up
+// payouts in GetPayed share in Linkitylink's monthly earnings by how often their
+// invite is tapped. Until they've connected, the share button gives way to
+// a prompt to do that; afterwards it comes back with this month's taps and
+// what has been paid. Re-checked whenever the app comes back to the front,
+// so returning from GetPayed shows the invite straight away.
+const referralCta = document.getElementById('referral-cta');
+const referralEarning = document.getElementById('referral-earning');
+const referralStats = document.getElementById('referral-stats');
+const referralConnectBtn = document.getElementById('referral-connect-btn');
+let getpayedUrl = null;
+
+const dollarsText = (cents) => `$${(cents / 100).toFixed(2)}`;
+
+async function refreshReferral() {
+    let status;
+    try {
+        status = await core.invoke('referral_status');
+    } catch {
+        return;
+    }
+    const earning = status.live && status.connected;
+    referralCta.hidden = !(status.live && !status.connected);
+    referralEarning.hidden = !earning;
+    referralShareBtn.hidden = status.live && !status.connected;
+    getpayedUrl = status.getpayedUrl;
+    if (earning) loadReferralStats(status.statsUrl);
+}
+
+async function loadReferralStats(url) {
+    if (!url) {
+        referralStats.textContent = 'Share your invite to start counting taps.';
+        return;
+    }
+    try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const s = await res.json();
+        const paid = s.months.reduce((n, m) => n + m.paidCents, 0);
+        const pending = s.months.reduce((n, m) => n + m.pendingCents, 0);
+        const taps = s.thisMonth.taps;
+        const parts = [`${taps} tap${taps === 1 ? '' : 's'} on your invite this month`];
+        if (paid) parts.push(`${dollarsText(paid)} paid so far`);
+        if (pending) parts.push(`${dollarsText(pending)} on the way`);
+        referralStats.textContent = parts.join(' · ');
+    } catch {
+        // Stats are a nicety; the invite works without them.
+        referralStats.textContent = '';
+    }
+}
+
+referralConnectBtn.addEventListener('click', async () => {
+    if (!getpayedUrl) return;
+    try {
+        await core.invoke('plugin:shell|open', { path: getpayedUrl });
+    } catch (err) {
+        setStatus(`Couldn't open GetPayed: ${err}`);
+    }
+});
+
+document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) refreshReferral();
 });
 
 // ── Canonical profile ────────────────────────────────────────────────────────
@@ -1450,6 +1519,7 @@ async function init() {
     // sharedCardId to already be populated on that first paint.
     await refreshSharedCardId();
     await loadCards();
+    refreshReferral();
     backgroundPublishAllCards();
 }
 
