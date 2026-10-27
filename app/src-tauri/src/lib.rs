@@ -979,9 +979,15 @@ async fn publish_card(app: tauri::AppHandle, card_id: String) -> Result<LinkCard
         .sessionless
         .sign(format!("{timestamp}{uuid}{BDO_HASH}"))
         .to_hex();
-    let share_url = format!(
+    let long_url = format!(
         "{SAVAGE_URL}user/{uuid}/bdo?timestamp={timestamp}&hash={BDO_HASH}&signature={signature}"
     );
+    // The short linkityl.ink link when savage can make one, else the long
+    // one, which works just as well. Published cards are republished on
+    // every launch, so a card that missed out gets its short link next time.
+    let share_url = register_short_link(&uuid, &timestamp, &signature)
+        .await
+        .unwrap_or(long_url);
 
     store.cards[index].bdo_uuid_by_env.insert(GATEWAY_ENV.to_string(), uuid);
     store.cards[index].share_url = Some(share_url);
@@ -989,6 +995,44 @@ async fn publish_card(app: tauri::AppHandle, card_id: String) -> Result<LinkCard
     let updated = store.cards[index].clone();
     write_cards(&app, &store)?;
     Ok(updated)
+}
+
+/// Asks savage for the card's short link: linkityl.ink/<name>, or
+/// linkityl.ink/2/<name> and so on when the name is taken (dev.linkityl.ink
+/// on dev). savage checks the card with the same signed query as the long
+/// link and takes the name from the card itself; a card keeps its link
+/// across republishes. None if savage can't be reached or refuses, and the
+/// caller falls back to the long link.
+async fn register_short_link(uuid: &str, timestamp: &str, signature: &str) -> Option<String> {
+    #[derive(Deserialize)]
+    struct ShortLink {
+        url: String,
+    }
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(8))
+        .build()
+        .ok()?;
+    let response = client
+        .post(format!("{SAVAGE_URL}l"))
+        .json(&serde_json::json!({
+            "uuid": uuid,
+            "timestamp": timestamp,
+            "hash": BDO_HASH,
+            "signature": signature,
+        }))
+        .send()
+        .await
+        .ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    let link: ShortLink = response.json().await.ok()?;
+    is_short_link(&link.url).then_some(link.url)
+}
+
+/// Only ever hand out a link on our own short domain.
+fn is_short_link(url: &str) -> bool {
+    url.starts_with("https://linkityl.ink/") || url.starts_with("https://dev.linkityl.ink/")
 }
 
 // ── Referral link ────────────────────────────────────────────────────────────
@@ -1858,5 +1902,19 @@ mod referral_program_tests {
     fn a_signed_href_is_escaped_in_the_card() {
         let svg = render_referral_svg("https://prod.8as.world/savage/r/abc-123?timestamp=1&hash=x&signature=ff");
         assert!(svg.contains("?timestamp=1&amp;hash=x&amp;signature=ff"), "{svg}");
+    }
+}
+
+#[cfg(test)]
+mod short_link_tests {
+    use super::*;
+
+    #[test]
+    fn only_our_short_domain_is_handed_out() {
+        assert!(is_short_link("https://linkityl.ink/jane-doe"));
+        assert!(is_short_link("https://dev.linkityl.ink/2/jane-doe"));
+        assert!(!is_short_link("http://linkityl.ink/jane-doe"));
+        assert!(!is_short_link("https://linkityl.ink.evil.example/jane"));
+        assert!(!is_short_link("https://example.com/jane"));
     }
 }
