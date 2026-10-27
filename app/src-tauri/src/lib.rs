@@ -273,6 +273,14 @@ async fn unpublish_everywhere(
     failed
 }
 
+/// The key that owns this install's short links, filed in bdo_keys.json
+/// beside the cards' own keys (card ids are numeric, so never this). Deleting
+/// a card leaves it alone, which is what lets a new card under a deleted
+/// card's name take back that card's linkityl.ink link: savage hands a link
+/// on only to the owner it was registered with. "Delete All My Data" removes
+/// it with the rest, and then the old links stay reserved for good.
+const SHORT_LINK_OWNER_KEY: &str = "short-link-owner";
+
 /// Returns a card's BDO identity, generating and persisting a fresh keypair
 /// the first time a given card is published.
 fn load_or_create_bdo_sessionless(app: &tauri::AppHandle, key: &str) -> Result<Sessionless, String> {
@@ -985,7 +993,8 @@ async fn publish_card(app: tauri::AppHandle, card_id: String) -> Result<LinkCard
     // The short linkityl.ink link when savage can make one, else the long
     // one, which works just as well. Published cards are republished on
     // every launch, so a card that missed out gets its short link next time.
-    let share_url = register_short_link(&uuid, &timestamp, &signature)
+    let owner = load_or_create_bdo_sessionless(&app, SHORT_LINK_OWNER_KEY).ok();
+    let share_url = register_short_link(&uuid, &timestamp, &signature, owner.as_ref())
         .await
         .unwrap_or(long_url);
 
@@ -1001,9 +1010,16 @@ async fn publish_card(app: tauri::AppHandle, card_id: String) -> Result<LinkCard
 /// linkityl.ink/2/<name> and so on when the name is taken (dev.linkityl.ink
 /// on dev). savage checks the card with the same signed query as the long
 /// link and takes the name from the card itself; a card keeps its link
-/// across republishes. None if savage can't be reached or refuses, and the
-/// caller falls back to the long link.
-async fn register_short_link(uuid: &str, timestamp: &str, signature: &str) -> Option<String> {
+/// across republishes. `owner` signs the same message, so a later card of
+/// this install's under the same name can take the link back once this card
+/// is deleted (see SHORT_LINK_OWNER_KEY). None if savage can't be reached
+/// or refuses, and the caller falls back to the long link.
+async fn register_short_link(
+    uuid: &str,
+    timestamp: &str,
+    signature: &str,
+    owner: Option<&Sessionless>,
+) -> Option<String> {
     #[derive(Deserialize)]
     struct ShortLink {
         url: String,
@@ -1012,14 +1028,19 @@ async fn register_short_link(uuid: &str, timestamp: &str, signature: &str) -> Op
         .timeout(std::time::Duration::from_secs(8))
         .build()
         .ok()?;
+    let mut body = serde_json::json!({
+        "uuid": uuid,
+        "timestamp": timestamp,
+        "hash": BDO_HASH,
+        "signature": signature,
+    });
+    if let Some(owner) = owner {
+        body["owner"] = owner.public_key().to_hex().into();
+        body["ownerSignature"] = owner.sign(format!("{timestamp}{uuid}{BDO_HASH}")).to_hex().into();
+    }
     let response = client
         .post(format!("{SAVAGE_URL}l"))
-        .json(&serde_json::json!({
-            "uuid": uuid,
-            "timestamp": timestamp,
-            "hash": BDO_HASH,
-            "signature": signature,
-        }))
+        .json(&body)
         .send()
         .await
         .ok()?;
