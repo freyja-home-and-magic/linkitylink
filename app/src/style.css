@@ -756,6 +756,20 @@ textarea {
     font-family: inherit;
 }
 
+/* The rules read as prose, so left-aligned, and sit above every other modal:
+   the empty-state flow can open the new-card chooser underneath. */
+#community-rules { z-index: 300; }
+
+.community-rules-panel > p {
+    text-align: left;
+    line-height: 1.45;
+}
+
+.community-rules-panel a {
+    color: var(--fg);
+    text-decoration: underline;
+}
+
 .modal-close {
     position: absolute;
     top: 8px;

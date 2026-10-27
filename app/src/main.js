@@ -1514,7 +1514,42 @@ profileForm.addEventListener('submit', async (e) => {
 
 profileCloseBtn.addEventListener('click', () => showView(preProfileView));
 
+// ── Community rules ─────────────────────────────────────────────────────────
+//
+// On first open (and again if the rules change) nothing else runs until
+// they're accepted, so no card is created or published before then.
+
+const communityRulesModal = document.getElementById('community-rules');
+const communityRulesAgreeBtn = document.getElementById('community-rules-agree-btn');
+
+document.getElementById('community-rules-email').addEventListener('click', async (event) => {
+    event.preventDefault();
+    try {
+        await core.invoke('plugin:shell|open', { path: 'mailto:support@homeventory.club' });
+    } catch (err) {
+        setStatus(`Couldn't open Mail: ${err}`);
+    }
+});
+
+async function ensureCommunityRulesAccepted() {
+    const accepted = await core.invoke('community_rules_accepted').catch(() => false);
+    if (accepted) return;
+    communityRulesModal.hidden = false;
+    communityRulesAgreeBtn.focus();
+    await new Promise((resolve) => {
+        communityRulesAgreeBtn.addEventListener('click', async () => {
+            communityRulesAgreeBtn.disabled = true;
+            // They agreed either way; if saving fails they're asked again
+            // next launch, which beats locking them out now.
+            await core.invoke('accept_community_rules').catch(() => {});
+            communityRulesModal.hidden = true;
+            resolve();
+        }, { once: true });
+    });
+}
+
 async function init() {
+    await ensureCommunityRulesAccepted();
     // Before loadCards, which renders the grid — the "Shared" badge needs
     // sharedCardId to already be populated on that first paint.
     await refreshSharedCardId();

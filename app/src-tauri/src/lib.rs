@@ -1455,6 +1455,40 @@ async fn reset_all_data(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+// ── Community rules ─────────────────────────────────────────────────────────
+//
+// Everyone accepts the community rules (the text is in index.html) before
+// the app does anything, since Apple requires it of apps where people
+// publish their own content. Acceptance is filed with the rules' version:
+// bump COMMUNITY_RULES_VERSION whenever the text changes and everyone is
+// asked again. It survives "Delete All My Data", being a record of the
+// user agreeing rather than anything of theirs that's published.
+
+const COMMUNITY_RULES_VERSION: u64 = 1;
+
+fn community_rules_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(data_dir(app)?.join("community_rules.json"))
+}
+
+#[tauri::command]
+fn community_rules_accepted(app: tauri::AppHandle) -> bool {
+    community_rules_path(&app)
+        .ok()
+        .and_then(|path| fs::read_to_string(path).ok())
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .and_then(|record| record["version"].as_u64())
+        .is_some_and(|version| version >= COMMUNITY_RULES_VERSION)
+}
+
+#[tauri::command]
+fn accept_community_rules(app: tauri::AppHandle) -> Result<(), String> {
+    let record = serde_json::json!({
+        "version": COMMUNITY_RULES_VERSION,
+        "acceptedAt": unix_now_ms_string(),
+    });
+    fs::write(community_rules_path(&app)?, record.to_string()).map_err(|e| e.to_string())
+}
+
 // ── App Group sharing ───────────────────────────────────────────────────────
 //
 // The App Group holds exactly ONE Linkitylink card, under the fixed key
@@ -1766,7 +1800,9 @@ pub fn run() {
             reset_all_data,
             import_from_bizbuz,
             load_canonical_profile,
-            save_canonical_profile
+            save_canonical_profile,
+            community_rules_accepted,
+            accept_community_rules
         ])
         .run(tauri::generate_context!())
         .expect("error while running linkitylink");

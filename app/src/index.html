@@ -179,6 +179,19 @@
                 <button type="button" class="btn btn-primary" id="url-import-submit-btn">Import</button>
             </div>
         </div>
+
+        <!-- Community rules — shown on first open, before anything else, and
+             can't be dismissed without agreeing. If this text changes, bump
+             COMMUNITY_RULES_VERSION in src-tauri/src/lib.rs so everyone is
+             asked again. -->
+        <div id="community-rules" class="modal" hidden>
+            <div class="modal-panel community-rules-panel" role="dialog" aria-modal="true" aria-labelledby="community-rules-title">
+                <h2 id="community-rules-title">Community Rules</h2>
+                <p>Linkitylink has zero tolerance for objectionable content or abusive users. Don’t post anything illegal, hateful, harassing, sexually explicit, deceptive, or harmful, and don’t use your page to scam, impersonate, or spread malware.</p>
+                <p>We may remove content or close accounts that break these rules, without a refund. To report a page, email <a href="mailto:support@homeventory.club" id="community-rules-email">support@homeventory.club</a>. We review reports within 24 hours.</p>
+                <button type="button" class="btn btn-primary" id="community-rules-agree-btn">I Agree</button>
+            </div>
+        </div>
     </main>
     <script type="module" src="main.js"></script>
 </body>
