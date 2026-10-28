@@ -1088,6 +1088,9 @@ copyLinkBtn.addEventListener('click', async () => {
 async function shareCardLink(card) {
     const url = card.shareUrl || (await core.invoke('publish_card', { cardId: card.id })).shareUrl;
     await core.invoke('plugin:share-sheet|share_text', { text: url });
+    // Sharing your own card earns a nineum in the payment pool (once a day
+    // per card). Best effort: the share already happened either way.
+    core.invoke('report_share', { cardId: card.id }).catch(() => {});
 }
 
 shareBtn.addEventListener('click', async () => {
@@ -1231,8 +1234,18 @@ referralConnectBtn.addEventListener('click', async () => {
     }
 });
 
+// The payment pool: registers this phone's HomeFront identity (shared by
+// every HomeFront app) and, once GetPayed is connected, where its earnings
+// go. Quiet on failure; the next launch tries again.
+function joinPool() {
+    core.invoke('join_pool').catch(() => {});
+}
+
 document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) refreshReferral();
+    if (!document.hidden) {
+        refreshReferral();
+        joinPool();
+    }
 });
 
 // ── Canonical profile ────────────────────────────────────────────────────────
@@ -1555,6 +1568,7 @@ async function init() {
     await refreshSharedCardId();
     await loadCards();
     refreshReferral();
+    joinPool();
     backgroundPublishAllCards();
 }
 

@@ -144,10 +144,15 @@ fs.writeFileSync(entitlementsPath, `<?xml version="1.0" encoding="UTF-8"?>
     <array>
         <string>group.club.home.front</string>
     </array>
+    <!-- The HomeFront identity every app shares (tauri-plugin-identity-keychain). -->
+    <key>keychain-access-groups</key>
+    <array>
+        <string>$(AppIdentifierPrefix)club.home.front</string>
+    </array>
 </dict>
 </plist>
 `);
-console.log('    Patched App Group entitlements (group.club.home.front)');
+console.log('    Patched App Group and keychain group entitlements (club.home.front)');
 
 // ── 4. Build IPA ───────────────────────────────────────────────────────────────
 console.log('\n==> Building Linkitylink IPA...');

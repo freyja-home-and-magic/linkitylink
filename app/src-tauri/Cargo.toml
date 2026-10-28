@@ -16,6 +16,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 tauri-plugin-share-sheet = { path = "tauri-plugin-share-sheet" }
 tauri-plugin-app-group = { path = "tauri-plugin-app-group" }
+tauri-plugin-identity-keychain = { path = "tauri-plugin-identity-keychain" }
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-shell = "2"

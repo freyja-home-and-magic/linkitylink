@@ -966,6 +966,13 @@ async fn publish_card(app: tauri::AppHandle, card_id: String) -> Result<LinkCard
         }
     }
 
+    // Whose card this is, for the payment pool: views of it and taps on it
+    // earn this person nineum. Public, and harmless if copied: it can only
+    // ever gift nineum to the identity it names.
+    if let Ok(identity) = homefront_identity(&app) {
+        card_obj.insert("fount".to_string(), serde_json::json!({ "pubKey": identity.pub_key }));
+    }
+
     let existing_uuid = store.cards[index].bdo_uuid_by_env.get(GATEWAY_ENV).cloned();
 
     let uuid = if let Some(uuid) = existing_uuid {
@@ -1455,6 +1462,100 @@ async fn reset_all_data(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+// ── HomeFront identity and the payment pool ─────────────────────────────────
+//
+// Every HomeFront app acts as one person: a sessionless identity kept in the
+// shared keychain group (tauri-plugin-identity-keychain), with a Fount user.
+// Useful actions (views of this person's cards, App Store taps on them,
+// their own shares, invoices they're paid) earn it nineum, and each month
+// HomeVentory's payment pool pays out on them (getpayed/PAYMENT_POOL.md,
+// savage/CLAUDE.md "The payment pool"). Cards name the identity as
+// `fount: { pubKey }` so savage knows whom a view or tap is for.
+//
+// Not part of "Delete All My Data": the identity belongs to every HomeFront
+// app on the phone, not just this one, and holds nothing published.
+
+const IDENTITY_SERVICE: &str = "fount";
+
+fn homefront_identity(app: &tauri::AppHandle) -> Result<tauri_plugin_identity_keychain::Identity, String> {
+    tauri_plugin_identity_keychain::get_or_create(app, IDENTITY_SERVICE, || {
+        let session = Sessionless::new();
+        (session.private_key().to_hex(), session.public_key().to_hex())
+    })
+}
+
+async fn post_to_pool(route: &str, body: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(8))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let response = client
+        .post(format!("{SAVAGE_URL}pool/{route}"))
+        .json(body)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let status = response.status();
+    let value: serde_json::Value = response.json().await.unwrap_or_default();
+    if !status.is_success() {
+        return Err(value["error"].as_str().unwrap_or("the pool refused").to_string());
+    }
+    Ok(value)
+}
+
+/// Joins the pool on this base: savage passes our signed Fount create
+/// request on to Fount, which is how it learns which uuid is ours. Brings
+/// the payout destination GetPayed shared, if any, signed by the identity
+/// so nobody else can set it. Runs on every launch and return to the app:
+/// it's idempotent, and it's how a newly connected payout reaches the pool.
+#[tauri::command]
+async fn join_pool(app: tauri::AppHandle) -> Result<String, String> {
+    let identity = homefront_identity(&app)?;
+    let session = sessionless_from_hex(&identity.private_key)?;
+    let timestamp = unix_now_ms_string();
+    let pub_key = identity.pub_key.clone();
+    let mut body = serde_json::json!({
+        "pubKey": pub_key,
+        "timestamp": timestamp,
+        "signature": session.sign(format!("{timestamp}{pub_key}")).to_hex(),
+    });
+    if let Some(destination) = shared_payout_destination(&app).await {
+        let message = format!("{timestamp}{pub_key}{}{}", destination.pub_key, destination.addie_url);
+        body["payout"] = payout_json(&destination);
+        body["payoutSignature"] = session.sign(message).to_hex().into();
+    }
+    let joined = post_to_pool("register", &body).await?;
+    let uuid = joined["uuid"].as_str().ok_or("the pool sent no uuid")?.to_string();
+    tauri_plugin_identity_keychain::set_uuid(&app, IDENTITY_SERVICE, GATEWAY_ENV, &uuid)?;
+    Ok(uuid)
+}
+
+/// Tells the pool the owner shared this card (it counts once per card a
+/// day). Signed twice: the card's own query, so savage can read the card,
+/// and the identity, which must be the one the card names.
+#[tauri::command]
+async fn report_share(app: tauri::AppHandle, card_id: String) -> Result<bool, String> {
+    let store = read_cards(&app)?;
+    let card = store.cards.iter().find(|c| c.id == card_id).ok_or("Card not found")?;
+    let Some(uuid) = card.bdo_uuid_by_env.get(GATEWAY_ENV).cloned() else {
+        return Ok(false);
+    };
+    let card_key = existing_bdo_sessionless(&app, &card_id).ok_or("This card has no key yet")?;
+    let me = sessionless_from_hex(&homefront_identity(&app)?.private_key)?;
+    let timestamp = unix_now_ms_string();
+    let body = serde_json::json!({
+        "uuid": uuid,
+        "query": {
+            "timestamp": timestamp,
+            "hash": BDO_HASH,
+            "signature": card_key.sign(format!("{timestamp}{uuid}{BDO_HASH}")).to_hex(),
+        },
+        "timestamp": timestamp,
+        "signature": me.sign(format!("{timestamp}{uuid}")).to_hex(),
+    });
+    Ok(post_to_pool("share", &body).await?["counted"].as_bool().unwrap_or(false))
+}
+
 // ── Community rules ─────────────────────────────────────────────────────────
 //
 // Everyone accepts the community rules (the text is in index.html) before
@@ -1784,6 +1885,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_share_sheet::init())
         .plugin(tauri_plugin_app_group::init())
+        .plugin(tauri_plugin_identity_keychain::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
@@ -1802,7 +1904,9 @@ pub fn run() {
             load_canonical_profile,
             save_canonical_profile,
             community_rules_accepted,
-            accept_community_rules
+            accept_community_rules,
+            join_pool,
+            report_share
         ])
         .run(tauri::generate_context!())
         .expect("error while running linkitylink");

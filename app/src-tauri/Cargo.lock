@@ -1877,6 +1877,7 @@ dependencies = [
  "tauri-plugin-app-group",
  "tauri-plugin-dialog",
  "tauri-plugin-fs",
+ "tauri-plugin-identity-keychain",
  "tauri-plugin-share-sheet",
  "tauri-plugin-shell",
 ]
@@ -3745,6 +3746,16 @@ dependencies = [
  "thiserror 2.0.20",
  "toml 1.1.4+spec-1.1.0",
  "url",
+]
+
+[[package]]
+name = "tauri-plugin-identity-keychain"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
 ]
 
 [[package]]
