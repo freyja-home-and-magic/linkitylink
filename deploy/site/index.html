@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Linkitylink: one link for everything</title>
+<meta name="description" content="The link that goes in your bio. Gather up to sixteen links into one page that looks like you. $9.99 once, not monthly.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Linkitylink">
+<meta property="og:title" content="Linkitylink: one link for everything">
+<meta property="og:description" content="The link that goes in your bio. $9.99 once, not monthly.">
+<meta property="og:url" content="https://linkityl.ink/">
+<meta property="og:image" content="https://linkityl.ink/_/icon.png">
+<meta name="twitter:card" content="summary">
+<meta name="theme-color" content="#1a1a1a">
+<link rel="icon" type="image/png" href="/_/icon.png">
+<link rel="apple-touch-icon" href="/_/icon.png">
+<style>
+  :root {
+    --ground: #1a1a1a;
+    --raised: #262626;
+    --line: rgba(247, 249, 250, 0.12);
+    --ink: #F7F9FA;
+    --muted: rgba(247, 249, 250, 0.68);
+    --green: #2E5E4E;
+    --mint: #AEE1D6;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 0 24px; }
+
+  header { padding: 24px 0; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; }
+  .brand img { border-radius: 8px; }
+
+  .hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+    gap: 56px;
+    align-items: center;
+    padding: 40px 0 72px;
+  }
+  h1 {
+    margin: 0 0 18px;
+    font-size: clamp(38px, 6vw, 60px);
+    line-height: 1.06;
+    letter-spacing: -0.025em;
+    text-wrap: balance;
+  }
+  .lede { margin: 0 0 28px; max-width: 34em; font-size: 19px; color: var(--muted); }
+  /* Apple's rules: at least 40px tall, clear space of a quarter of the
+     badge's height on every side. */
+  .get { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; }
+  .badge { display: block; padding: 14px 14px 14px 0; }
+  .badge img { display: block; height: 56px; width: auto; }
+  .price { font-size: 17px; font-weight: 700; }
+  .price span { display: block; font-size: 14px; font-weight: 400; color: var(--muted); }
+
+  /* A sample of what a published card looks like. Drawn here, not a capture,
+     so nobody's real card ends up on the page. */
+  .card {
+    max-width: 320px;
+    width: 100%;
+    margin: 0 auto;
+    padding: 28px 20px 22px;
+    background: var(--raised);
+    border: 1px solid var(--line);
+    border-radius: 24px;
+    text-align: center;
+  }
+  .avatar {
+    display: grid;
+    place-items: center;
+    width: 76px;
+    height: 76px;
+    margin: 0 auto 12px;
+    border-radius: 50%;
+    background: var(--green);
+    font-size: 26px;
+    font-weight: 700;
+  }
+  .card h2 { margin: 0; font-size: 20px; }
+  .card p { margin: 4px 0 18px; font-size: 14px; color: var(--muted); }
+  .card ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+  .card li {
+    padding: 11px 12px;
+    background: var(--green);
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .address { margin-top: 16px; font-size: 13px; color: var(--mint); }
+
+  .points {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 36px;
+    padding: 56px 0;
+    border-top: 1px solid var(--line);
+  }
+  h3 { margin: 0 0 8px; font-size: 18px; color: var(--mint); }
+  .points p { margin: 0; color: var(--muted); }
+
+  footer { padding: 28px 0 40px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+  footer p { margin: 0 0 6px; }
+
+  @media (max-width: 760px) {
+    .hero { grid-template-columns: minmax(0, 1fr); gap: 44px; padding: 20px 0 56px; }
+    .lede { font-size: 18px; }
+    .points { grid-template-columns: minmax(0, 1fr); gap: 28px; padding: 44px 0; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand"><img src="/_/icon.png" alt="" width="32" height="32">Linkitylink</div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <h1>One link for everything you do.</h1>
+        <p class="lede">The link that goes in your bio. Gather your shop, your socials and your booking page into one page that looks like you, with a link that's easy to say out loud.</p>
+        <div class="get">
+          <a class="badge" href="https://apps.apple.com/us/app/linkitylink-hf/id6808065892">
+            <img src="/_/app-store-badge.svg" alt="Download on the App Store" width="168" height="56">
+          </a>
+          <div class="price">$9.99 <span>once, not monthly</span></div>
+        </div>
+      </div>
+
+      <div class="card" role="img" aria-label="A sample Linkitylink card for a bakery, with a list of links">
+        <div class="avatar">RB</div>
+        <h2>Rosie's Bakes</h2>
+        <p>Sourdough and sweets, baked to order.</p>
+        <ul>
+          <li>Order this week's bread</li>
+          <li>Instagram</li>
+          <li>Farmers market hours</li>
+          <li>Book a custom cake</li>
+        </ul>
+        <div class="address">linkityl.ink/rosie-s-bakes</div>
+      </div>
+    </section>
+
+    <section class="points">
+      <div>
+        <h3>No subscription</h3>
+        <p>Pay once and your page is yours. No monthly fee to keep your own links online.</p>
+      </div>
+      <div>
+        <h3>Bring what you have</h3>
+        <p>Import your links from Linktree or another page, or build from scratch. Icons are detected for you.</p>
+      </div>
+      <div>
+        <h3>Room for all of you</h3>
+        <p>Up to four cards with up to sixteen links each. Work, personal and side hustle stay separate.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>Linkitylink is available for iPhone. <a href="https://homeventory.club/apps">A HomeFront offering</a></p>
+    <p>App Store is a trademark of Apple Inc., registered in the U.S. and other countries.</p>
+  </footer>
+</div>
+</body>
+</html>
