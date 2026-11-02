@@ -1,6 +1,6 @@
 {
   "name": "linkitylink-app",
-  "version": "0.1.0",
+  "version": "0.2.3",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,7 +10,11 @@
     "ios:dev": "tauri ios dev",
     "build:ios": "node scripts/build-ios.cjs",
     "android:dev": "tauri android dev",
-    "android:build": "tauri android build"
+    "android:build": "tauri android build",
+    "dev:dev": "node scripts/set-build-env.cjs dev && npm run dev",
+    "build:dev": "node scripts/set-build-env.cjs dev && npm run build",
+    "build:prod": "node scripts/set-build-env.cjs prod && npm run build",
+    "dev:ios": "node scripts/dev-ios.cjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2"

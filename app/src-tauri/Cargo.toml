@@ -1,6 +1,6 @@
 [package]
 name = "linkitylink"
-version = "0.1.0"
+version = "0.2.3"
 description = "Linkitylink — one link card, shared anywhere"
 authors = ["Freyja - Love and Magic"]
 edition = "2021"
@@ -11,6 +11,8 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+# build.rs reads bases.json to pick this build's base.
+serde_json = "1.0"
 
 [dependencies]
 tauri = { version = "2", features = [] }

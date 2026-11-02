@@ -92,6 +92,27 @@ Saving a card whose category is food-related (`caterer`, `restauranteur`, `chef`
 
 allyabase's own `CLAUDE.md` documents a wiki proxy alias `/plugin/allyabase/linkitylink/* → glyphenge:3010`. That is unrelated to this app — Glyphenge is allyabase's own server-side SVG-rendering microservice, and the alias exists only because it shares a name with the "linkitylink" product concept. Nothing in this Tauri app or the root Express server talks to that proxy route.
 
+### Which base a build talks to (September 2026)
+
+`GATEWAY_BDO_URL`, `SAVAGE_URL` and `GATEWAY_ENV` are no longer literals in `lib.rs`. They live per-base in **`src-tauri/bases.json`**, and `build.rs` picks one entry and bakes it in via `env!()`, so the binary carries exactly one base. Everything is derived from a single `host`, because the 8as.world droplets route by path: nginx terminates TLS on 443 and proxies `/<service>/` to that service's local port.
+
+**Releases are always prod.** Everything `build:ios` exports for App Store Connect is a prod build; there is no dev build on TestFlight. Dev testing runs against the local Tauri dev server instead:
+
+    npm run dev:ios      # device or simulator, pointed at dev.8as.world
+    npm run dev          # desktop webview, fastest loop for frontend work
+
+An odd-dev/even-prod build-number scheme was tried on 2026-09-28 and taken back on 2026-09-30. It fails on local storage: both halves share one bundle id and therefore one app container, so a dev build's `cards.json`, `base.json`, `bdo_keys.json` and addie identity survive into the next prod install of the same app. That state names a base, and reading a record against the wrong base does not error — BDO answers `{"bdo": null}`, which parses as empty — so the app comes up looking fine and quietly finds nothing.
+
+`scripts/dev-ios.cjs` exists because `tauri ios dev` does one thing less than the release build: it leaves the **App Group entitlement** as an empty dict. Without it the Canonical Profile, the "Import from ..." handoffs between sibling apps, and GetPayed's `stripeConnected` signal to idothis are all dead. The dev script writes that entitlement before handing over. On desktop (`npm run dev`) the app-group plugin resolves to its no-op stub, so the UI works but nothing crosses apps.
+
+Three things enforce it, because nothing at runtime can:
+
+- `scripts/set-build-env.cjs` translates the choice into `src-tauri/.build-env`. It has to be a file, not an environment variable — an iOS build compiles the Rust crate inside an Xcode Run Script phase that inherits nothing. idothis shipped three consecutive IPAs pointed at prod while reporting dev before that was understood.
+- `the_gateway_and_the_env_key_name_the_same_base` in `lib.rs` asserts every base-derived const names the same host as the compiled build env.
+- `scripts/build-ios.cjs` reads the evidence back out of the **finished IPA** and fails the build on a mismatch. A test IPA on the wrong base is worse than no IPA, because it looks like it works.
+
+`GATEWAY_ENV` is derived from the same host as the URLs rather than hand-maintained beside them, so the key a published uuid is filed under can no longer drift from the gateway it was minted against.
+
 ### HomeFront identity and the payment pool (October 2026)
 
 Every HomeFront app on a phone acts as one person: a sessionless identity
@@ -140,7 +161,7 @@ Upload to App Store Connect is a deliberately separate, manual step (Transporter
 
 **Version trains close.** Once a build is submitted under a version, App Store Connect rejects further uploads to it with `Validation failed (409) Invalid Pre-Release Train`. A new round needs a new version in `tauri.conf.json`, `package.json` and `Cargo.toml`, plus `.build-number` back to 0. Store version strings and the version here do not correspond and are not worth reconciling.
 
-**Screenshots**: `app-store-screenshots/README.md` documents the process; `make-screenshots.sh` produces 6.9″ (1320×2868) and 6.5″ (1284×2778) sets from originals, and `SKIP_TF_MASK=1` skips the TestFlight banner mask that otherwise blacks out the status bar clock. A listing showing no screenshots in App Store *search results* means the 6.5″ set is missing.
+**Screenshots**: `app-store-screenshots/README.md` documents the process; `make-screenshots.sh` produces 6.3″ (1206×2622, the required size since Apple's October 2026 spec change), 6.9″ (1320×2868) and 6.5″ (1284×2778) sets from originals, and `SKIP_TF_MASK=1` skips the TestFlight banner mask that otherwise blacks out the status bar clock. A listing showing no screenshots in App Store *search results* means the 6.5″ set is missing.
 
 ### Native plugins
 
@@ -152,7 +173,9 @@ Two local Tauri plugins live under `app/src-tauri/`, both thin Swift/Rust wrappe
 
 ## Root-level Express server (`linkitylink.js`)
 
-A separate, older Node/Express service at the repo root (`linkitylink.js`, `package.json` with `"main": "linkitylink.js"`, `lib/app-handoff.js`, `lib/relevant-bdos-middleware.js`, `public/*.html`, `docker-compose*.yml`, `Dockerfile*`) — **not part of the Tauri app**, and not wired into it in any way. It predates the Tauri rewrite (its own `README.md` still describes it as the current product, with API docs for `POST /create`, emojicode-based viewing, etc., matching what the old version of this file also described) but is **not dead code**: it's still current as of an April 2026 commit (`d9b2d71`, vs. August 2026 for the Tauri app), and it is what the Federated Wiki plugin `wiki-plugin-linkitylink` (in `/Users/zachbabb/Work/planet-nine/third-party/wiki-plugin-linkitylink/`) spawns as a child process under the Service-Bundling Plugin Pattern, proxying `/plugin/linkitylink/*` to it.
+**Checkouts outside this repo.** The wiki plugin and other Planet Nine repos referenced below are not at fixed paths, and are not checked out under `~/Work` on every machine. Don't guess or hardcode a location: when a task needs one of them, ask the user where it lives before reading or editing it.
+
+A separate, older Node/Express service at the repo root (`linkitylink.js`, `package.json` with `"main": "linkitylink.js"`, `lib/app-handoff.js`, `lib/relevant-bdos-middleware.js`, `public/*.html`, `docker-compose*.yml`, `Dockerfile*`) — **not part of the Tauri app**, and not wired into it in any way. It predates the Tauri rewrite (its own `README.md` still describes it as the current product, with API docs for `POST /create`, emojicode-based viewing, etc., matching what the old version of this file also described) but is **not dead code**: it's still current as of an April 2026 commit (`d9b2d71`, vs. August 2026 for the Tauri app), and it is what the Federated Wiki plugin `wiki-plugin-linkitylink` spawns as a child process under the Service-Bundling Plugin Pattern, proxying `/plugin/linkitylink/*` to it.
 
 This server:
 - Runs on port 6010 by default (`PORT` env var), talks to Fount/BDO/Addie over HTTP (`FOUNT_BASE_URL`/`BDO_BASE_URL`/`ADDIE_BASE_URL`), and creates link pages as public BDOs keyed by emojicode rather than the Tauri app's per-card keypair model.
@@ -160,7 +183,7 @@ This server:
 - `lib/app-handoff.js` — a web-to-app handoff flow (authenticate a pending web-created BDO to a native app via a color-sequence game, then hand off the coordinating pubKey) — this is a different, older mechanism than the App Group-based Canonical Profile used by the Tauri app.
 - `docker-compose.yml` builds and runs this server as a container alongside a `planetnine/allyabase` image; `docker-compose.standalone.yml`/`Dockerfile.local` are lighter-weight local variants.
 
-For API/integration details of this server (endpoints, environment variables, the template-marketplace / MAGIC-spell revenue-sharing feature), see the wiki plugin's own documentation: `/Users/zachbabb/Work/planet-nine/third-party/wiki-plugin-linkitylink/CLAUDE.md`, and this repo's own `README.md` and `MANUAL-TESTING.md`/`USER-TESTING-GUIDE.md`.
+For API/integration details of this server (endpoints, environment variables, the template-marketplace / MAGIC-spell revenue-sharing feature), see the wiki plugin's own `CLAUDE.md`, and this repo's own `README.md` and `MANUAL-TESTING.md`/`USER-TESTING-GUIDE.md`.
 
 ## Known Limitations
 
@@ -178,10 +201,6 @@ For API/integration details of this server (endpoints, environment variables, th
   `profile_to_canonical`, and delete-before-key-deletion on reset. Copy
   idothis's rather than reinventing it. prof is not deployed yet, and the UI
   there hides itself until `/health` reports an encryption key.
-- **App Store screenshots need recapturing from build 24 or later.** Two of
-  the captured screens still show copy with em dashes in it, which were
-  cleared from the app in September 2026 (house style: no em dashes in
-  user-facing copy).
 - **Store metadata and keywords** were never written up anywhere.
 
 ## Related Documentation
@@ -190,11 +209,29 @@ For API/integration details of this server (endpoints, environment variables, th
   and where PII may and may not go: `allyabase/CLAUDE.md` → "How the apps and
   services fit together". Read that before changing anything that crosses a
   service.
-- Federated Wiki plugin that bundles the root Express server: `/Users/zachbabb/Work/planet-nine/third-party/wiki-plugin-linkitylink/CLAUDE.md`
+- Federated Wiki plugin that bundles the root Express server: `wiki-plugin-linkitylink`'s own `CLAUDE.md`
 - Sibling apps sharing the same Tauri scaffolding and App Group: BizBuz, Gelder, Gettit, Letemcook, idothis (see their own `CLAUDE.md`)
 - allyabase's own service list/proxy routing (for context on the *unrelated* Glyphenge alias): `/allyabase/CLAUDE.md`
 
 ## Last Updated
+September 30, 2026 — Took back the odd-dev/even-prod build-number scheme
+adopted two days earlier. It cannot work: both halves share one bundle id and
+therefore one app container, so a dev build's local state survives into the
+next prod install and points it at the wrong base, silently. Everything
+exported for App Store Connect is now prod, and dev testing runs against the
+local Tauri dev server via the new `npm run dev:ios` (`scripts/dev-ios.cjs`),
+which patches in the App Group entitlement that `tauri ios dev` leaves empty.
+`build-ios-pair.cjs` and `build:ios:pair` are gone. The per-base switch
+(`bases.json` + `build.rs` + `set-build-env.cjs`) stays exactly as it was —
+only what drives it changed.
+
+September 28, 2026 — Added the build-time base switch
+(`src-tauri/bases.json` + `build.rs`) and the family-wide parity scheme: odd
+build numbers are built against dev, even against prod, with
+`npm run build:ios:pair` producing one of each. `GATEWAY_ENV` is now derived
+from the same host as the service URLs instead of being hand-maintained beside
+them. Screenshots gained text overlays (see `app-store-screenshots/`).
+
 September 24, 2026 — Repointed at prod for App Store submission; documented
 the render fixes (base64 photo into the SVG and savage's matching sanitizer
 change, outlines on dark brand badges), the input fixes (write-through save,

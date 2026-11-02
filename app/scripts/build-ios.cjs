@@ -35,14 +35,38 @@ const TEAM_ID = 'PCUFMY9NKZ';
 // tauri fails with "{arch} isn't a known arch". Tauri sets it itself when it wants it.
 delete process.env.FORCE_COLOR;
 
-// ── 1. Bump build number ──────────────────────────────────────────────────────
+// ── 1. Bump build number ────────────────────────────────────────────────────
+//
+// Everything exported for App Store Connect is a PROD build. Dev testing runs
+// against the local Tauri dev server instead (npm run dev:ios), not through
+// TestFlight. An odd-dev/even-prod scheme was tried on 2026-09-28 and taken
+// back the same week: both halves share one bundle id and therefore one app
+// container, so a dev build's local state (cards.json, base.json,
+// bdo_keys.json, the addie identity) survives into the next prod install of
+// the same app and quietly points it at the wrong base.
 const buildNumberFile = path.join(ROOT, '.build-number');
 const prevBuildNumber = fs.existsSync(buildNumberFile)
   ? parseInt(fs.readFileSync(buildNumberFile, 'utf8').trim(), 10) || 0
   : 0;
 const buildNumber = prevBuildNumber + 1;
 fs.writeFileSync(buildNumberFile, `${buildNumber}\n`);
-console.log(`\n==> Build number: ${buildNumber}`);
+
+const buildEnvName = 'prod';
+console.log(`\n==> Build number: ${buildNumber} (${buildEnvName})`);
+
+// The env cannot reach the compiler as a variable: the Rust crate is built
+// inside an Xcode Run Script phase, which does not inherit one. idothis lost
+// three consecutive IPAs to exactly that — they reported dev and shipped
+// prod. So translate here, in the one process where the choice is visible,
+// into src-tauri/.build-env, which build.rs reads and cargo tracks.
+const setEnv = spawnSync(
+  process.execPath, [path.join(__dirname, 'set-build-env.cjs'), buildEnvName],
+  { stdio: 'inherit' }
+);
+if (setEnv.status !== 0) {
+  console.error(`\n❌ '${buildEnvName}' is not a base this app can build against.`);
+  process.exit(1);
+}
 
 // ── 2. Reinitialise Tauri iOS project ─────────────────────────────────────────
 console.log('\n==> Reinitialising Tauri iOS project...');
@@ -254,6 +278,54 @@ const versionedIpaName = `${conf.productName}-${buildNumber}.ipa`;
 
 fs.mkdirSync(buildDir, { recursive: true });
 fs.copyFileSync(ipaSrc, path.join(buildDir, versionedIpaName));
+
+// ── Prove the built binary points where the build number says ────────────────
+//
+// The env reaches the compiler through a FILE (src-tauri/.build-env), because
+// an iOS build compiles the Rust crate inside an Xcode Run Script phase that
+// inherits no environment. idothis shipped three consecutive IPAs pointed at
+// prod while reporting dev before that was understood. So the env var is not
+// trusted here: the evidence is read back out of the IPA that was actually
+// produced, and a mismatch fails the build. A test IPA on the wrong base is
+// worse than no IPA, because it looks like it works.
+const host = buildEnvName === 'prod' ? 'prod.8as.world' : 'dev.8as.world';
+const otherHost = buildEnvName === 'prod' ? 'dev.8as.world' : 'prod.8as.world';
+const expectations = [
+  `https://${host}/bdo/`,
+  `https://${host}/savage/`,
+];
+const forbidden = [
+  `https://${otherHost}/bdo/`,
+  `https://${otherHost}/savage/`,
+];
+
+const verifyDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'linkitylink-verify-'));
+spawnSync('unzip', ['-q', '-o', ipaSrc, '-d', verifyDir]);
+const verifyBinary = path.join(
+  verifyDir, 'Payload', `${conf.productName}.app`, conf.productName
+);
+if (!fs.existsSync(verifyBinary)) {
+  console.error(`\n❌ Couldn't read ${conf.productName} out of the IPA to verify its base.`);
+  console.error(`   Looked for ${verifyBinary}`);
+  process.exit(1);
+}
+const symbols = spawnSync('strings', ['-a', verifyBinary], {
+  encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+}).stdout || '';
+fs.rmSync(verifyDir, { recursive: true, force: true });
+
+const missing = expectations.filter((v) => !symbols.includes(v));
+const strays = forbidden.filter((v) => symbols.includes(v));
+if (missing.length || strays.length) {
+  console.error(`\n❌ The built IPA does not point at ${buildEnvName}.`);
+  for (const m of missing) console.error(`   Expected ${m}, which is not in the binary.`);
+  for (const x of strays) console.error(`   Found another base's value: ${x}`);
+  console.error(`   Check src-tauri/.build-env (should say '${buildEnvName}'), then:`);
+  console.error(`     touch src-tauri/build.rs && npm run build:ios`);
+  console.error(`\n   builds/v${version}/${versionedIpaName} is NOT trustworthy. Do not upload it.\n`);
+  process.exit(1);
+}
+console.log(`\n🔎 Verified in the IPA: this is a ${buildEnvName} build (build ${buildNumber})`);
 
 console.log(`\n✅ Build complete: builds/v${version}/${versionedIpaName} (build ${buildNumber})`);
 console.log('   Upload via Transporter.app, or:');

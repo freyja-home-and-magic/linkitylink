@@ -1,0 +1,10 @@
+{
+  "$comment": [
+    "Which allyabase base a build talks to. build.rs reads this, picks ONE entry, and bakes its values in as env!() consts, so the binary carries exactly one host.",
+    "Everything is derived from `host` because the 8as.world droplets use path-based routing: nginx terminates TLS on 443 and proxies /<service>/ to that service's local port. One hostname, one certificate, every service under it.",
+    "Odd build numbers are built against dev, even against prod. scripts/build-ios.cjs enforces that pairing; see BUILD_PARITY there."
+  ],
+  "prod": { "host": "prod.8as.world" },
+  "dev": { "host": "dev.8as.world" },
+  "test": { "aliasOf": "dev" }
+}

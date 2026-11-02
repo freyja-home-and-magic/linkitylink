@@ -26,5 +26,7 @@ cookies.txt
 dist/
 build/
 .build/
+app/builds/
+app/src-tauri/.build-env
 
 target

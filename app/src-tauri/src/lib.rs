@@ -16,16 +16,20 @@ use tauri::Manager;
 // what keeps iOS ATS happy, since the services themselves speak plain HTTP
 // and are not reachable directly from outside.
 //
-// Production, as of the App Store submission. Dev's BDO is a commit behind
-// and answers a successful delete with 404, which made "Delete All My Data"
-// report failure on a deletion that had in fact happened — not something to
-// ship while claiming users can delete their data. Cards published against
-// dev by earlier TestFlight builds are unaffected: their uuids are kept
-// per-env (see GATEWAY_ENV), and unpublish_everywhere rebuilds each base
-// from the stored env key, so deleting one still reaches the base holding
-// it.
-const GATEWAY_BDO_URL: &str = "https://prod.8as.world/bdo/";
-const SAVAGE_URL: &str = "https://prod.8as.world/savage/";
+// Which host these point at is chosen at build time from bases.json (see
+// build.rs): odd build numbers are dev, even are prod. Releases are even.
+//
+// Cards published against a different base by an earlier build are
+// unaffected: their uuids are kept per-env (see GATEWAY_ENV), and
+// unpublish_everywhere rebuilds each base from the stored env key, so
+// deleting one still reaches the base holding it.
+//
+// Worth knowing when testing on dev: dev's BDO is a commit behind and answers
+// a successful delete with 404, which makes "Delete All My Data" report
+// failure on a deletion that did in fact happen. That is a dev-only artefact,
+// and the reason releases go to prod.
+const GATEWAY_BDO_URL: &str = env!("GATEWAY_BDO_URL");
+const SAVAGE_URL: &str = env!("SAVAGE_URL");
 const BDO_HASH: &str = "linkitylink-card";
 
 // ── Palette ──────────────────────────────────────────────────────────────────
@@ -60,9 +64,10 @@ const MAX_CARDS: usize = 4;
 // BDO mints its own server-side uuid on create_user, distinct from the local
 // keypair — a uuid minted against one gateway 404s an update_bdo call on
 // another, so both a card's publish record and the referral link are stored
-// per-env (keyed by this const) rather than as a single value. Bump this
-// whenever GATEWAY_BDO_URL points at a genuinely different BDO deployment.
-const GATEWAY_ENV: &str = "prod-8as-world";
+// per-env (keyed by this const) rather than as a single value. Derived in
+// build.rs from the same host GATEWAY_BDO_URL is built from, so the two can
+// never disagree — this used to be hand-maintained beside it.
+const GATEWAY_ENV: &str = env!("GATEWAY_ENV");
 const MAX_LINKS: usize = 16;
 // Bounds a pathological generic-fallback page's raw scrape output; the real
 // user-facing cap is MAX_LINKS, enforced at merge time in the JS import handler.
@@ -1047,6 +1052,9 @@ async fn register_short_link(
     }
     let response = client
         .post(format!("{SAVAGE_URL}l"))
+        // Same header the BDO client sends, so nginx routes this to the
+        // same base as the card itself.
+        .header("x-homefront-app-version", APP_VERSION_HEADER)
         .json(&body)
         .send()
         .await
@@ -1880,8 +1888,32 @@ async fn save_canonical_profile(app: tauri::AppHandle, mut profile: CanonicalPro
 
 // ── App entry ────────────────────────────────────────────────────────────────
 
+// ── Who is calling ───────────────────────────────────────────────────────────
+//
+// Sent as `x-homefront-app-version` on every outbound request, from this app
+// and from the shared clients it links. The point is that a base can tell its
+// callers apart: nginx can route one specific build somewhere else without the
+// app knowing, which is how an App Store reviewer's build gets pointed at a
+// demo base during review.
+//
+// Version comes from Cargo (kept in step with tauri.conf.json and
+// package.json; those three must agree or the build lands in the wrong
+// folder), and the build number from .build-number via build.rs, so this is
+// exactly the CFBundleVersion that ships.
+const APP_VERSION_HEADER: &str = concat!(
+    "linkitylink/", env!("CARGO_PKG_VERSION"), "+", env!("APP_BUILD_NUMBER")
+);
+
+/// Tells every shared client who we are. Called once, before anything can
+/// make a request.
+fn announce_app_version() {
+    bdo_rs::set_app_version(APP_VERSION_HEADER);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    announce_app_version();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_share_sheet::init())
         .plugin(tauri_plugin_app_group::init())
@@ -1923,6 +1955,22 @@ mod tests {
     /// this app must not drop it (the carry-forward in
     /// save_canonical_profile), because this app has no UI for it and
     /// always sends None.
+
+    /// The gateway, the env key the uuids are filed under, and the build env all
+    /// have to name the SAME base. They are separate consts reaching lib.rs by
+    /// separate routes, and nothing at runtime would notice them disagreeing: a
+    /// uuid filed under the wrong env key simply 404s on update, which the
+    /// publish path treats as "not published yet".
+    #[test]
+    fn the_gateway_and_the_env_key_name_the_same_base() {
+        let host = match env!("LINKITYLINK_BUILD_ENV") {
+            "dev" | "test" => "dev.8as.world",
+            _ => "prod.8as.world",
+        };
+        assert_eq!(GATEWAY_BDO_URL, format!("https://{host}/bdo/"));
+        assert_eq!(SAVAGE_URL, format!("https://{host}/savage/"));
+        assert_eq!(GATEWAY_ENV, host.replace('.', "-"));
+    }
     #[test]
     fn canonical_profile_round_trips_payout_key() {
         // Exactly what getpayed writes, including fields this app knows
