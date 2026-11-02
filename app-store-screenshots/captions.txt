@@ -1,0 +1,13 @@
+# One line per screenshot in originals/: NN|Headline|Subhead
+#
+# Blank subhead is allowed (NN|Headline|). A screenshot with no line here is
+# rendered full-bleed, uncaptioned, the way the set looked before.
+#
+# House style: no em dashes in user-facing copy. Keep headlines under about
+# 34 characters or they wrap to two lines, which pushes the capture down and
+# shrinks it. Two lines still lay out correctly, it just costs height.
+
+01|One link for all your links|Published as a page anyone can open.
+02|Up to four link cards|Work, personal, side hustle. Kept separate.
+03|Import the links you have|Pull from Linktree, or build from scratch.
+04|Photo, bio, socials, links|Up to 16 links, icons detected for you.
