@@ -25,5 +25,6 @@ cookies.txt
 # Build artifacts
 dist/
 build/
+.build/
 
 target
