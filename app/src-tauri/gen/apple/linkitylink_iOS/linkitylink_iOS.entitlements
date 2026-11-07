@@ -6,5 +6,10 @@
     <array>
         <string>group.club.home.front</string>
     </array>
+    <!-- The HomeFront identity every app shares (tauri-plugin-identity-keychain). -->
+    <key>keychain-access-groups</key>
+    <array>
+        <string>$(AppIdentifierPrefix)club.home.front</string>
+    </array>
 </dict>
 </plist>

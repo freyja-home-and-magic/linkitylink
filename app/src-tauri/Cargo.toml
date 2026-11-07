@@ -1,6 +1,6 @@
 [package]
 name = "linkitylink"
-version = "0.2.3"
+version = "0.2.4"
 description = "Linkitylink — one link card, shared anywhere"
 authors = ["Freyja - Love and Magic"]
 edition = "2021"

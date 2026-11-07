@@ -1111,7 +1111,7 @@ const REFERRAL_DESIGN: u32 = 2 + REFERRALS_LIVE as u32;
 /// stays off until GetPayed is on the App Store: put its listing here to
 /// switch the program on. That also bumps REFERRAL_DESIGN, so every invite
 /// card already shared is rewritten to route its button through the counter.
-const GETPAYED_APP_STORE_URL: Option<&str> = None;
+const GETPAYED_APP_STORE_URL: Option<&str> = Some("https://apps.apple.com/app/id6808066148");
 const REFERRALS_LIVE: bool = GETPAYED_APP_STORE_URL.is_some();
 
 /// Where an invite card's "Get" button points: through savage's tap counter
@@ -2101,10 +2101,14 @@ mod referral_program_tests {
     }
 
     #[test]
-    fn button_goes_straight_to_the_store_until_the_program_is_live() {
-        assert!(!REFERRALS_LIVE, "switch on deliberately, once GetPayed is listed");
-        assert_eq!(referral_button_href(SHARE, "abc-123"), APP_STORE_URL);
-        assert_eq!(REFERRAL_DESIGN, 2);
+    fn button_goes_through_the_tap_counter_now_the_program_is_live() {
+        assert!(REFERRALS_LIVE, "GetPayed is listed, so the program is on");
+        assert_eq!(
+            referral_button_href(SHARE, "abc-123"),
+            "https://prod.8as.world/savage/r/abc-123?timestamp=1&hash=x-referral&signature=ff"
+        );
+        // Bumped from 2 so every invite card already shared is rewritten.
+        assert_eq!(REFERRAL_DESIGN, 3);
     }
 
     #[test]
