@@ -1,5 +1,10 @@
 # Linkitylink - Development Documentation
 
+## Payments are USD only
+
+Every payment, tip and payout is in USD, through Stripe via addie. Do not add
+other currencies or payment rails (crypto included).
+
 ## Overview
 
 Linkitylink is a Planet Nine native "link-in-bio" app: a user builds one or more cards (name, bio, photo, category, up to 16 links), then publishes a card as a permanent, shareable SVG webpage — a Linktree/Beacons alternative. The primary product today is the Tauri iOS app in `app/`.
@@ -134,6 +139,23 @@ entitlement beside the App Group; without it every keychain call fails.
   HomeFront app on the phone.
 
 See savage/CLAUDE.md "The payment pool" and getpayed/PAYMENT_POOL.md.
+
+### Tips (November 2026)
+
+A card can take tips in USD (`LinkCard.tips`: `{usd}`).
+The editor's Tips section, between Socials and Links, appears once
+`tips_available` says GetPayed is ready: `stripeConnected == true` AND a
+`payout` pair in the Canonical Profile. USD is also dropped at publish time
+if that stops being true, so a card never offers a tip that would charge the
+visitor and pay out nothing.
+
+`publish_card` writes a `tipJar` (`{usd: <payout pair>}`) on
+the record and draws a "Leave a tip" row after the leading run of social
+links. Those buttons link to eumachia's `/tip/:uuid` page (`EUMACHIA_URL`,
+from bases.json like the others) with the card's own read credentials;
+eumachia does the amount prompt and the invoice
+(eumachia/CLAUDE.md, "Tips from Linkitylink cards"). The signature needs the
+uuid, so the first publish of a card with tips is create then update.
 
 ## Build & Deploy (Tauri app)
 

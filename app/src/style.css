@@ -200,6 +200,57 @@ textarea {
     width: auto;
 }
 
+/* ── Tips (Edit view section, Card view row) ──────────────────────────────── */
+
+.tips-section {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+.tip-toggle {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 12px;
+    font-size: 15px;
+    color: var(--fg);
+}
+.tip-toggle input {
+    width: 22px;
+    height: 22px;
+    margin: 1px 0 0;
+    padding: 0;
+    flex-shrink: 0;
+    accent-color: var(--green);
+}
+.tip-toggle input:disabled + span { opacity: 0.6; }
+.tip-toggle small {
+    display: block;
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--white-70);
+}
+
+.card-tips { margin: 0 0 20px; text-align: center; }
+.card-tips-label {
+    margin: 0 0 8px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 600;
+    color: var(--white-70);
+}
+.card-tips-row { display: flex; gap: 10px; justify-content: center; }
+.card-tip-pill {
+    flex: 1;
+    max-width: 160px;
+    padding: 10px 14px;
+    border-radius: 22px;
+    background: var(--green);
+    color: var(--glacier-white);
+    font-size: 14px;
+    font-weight: 600;
+}
+
 /* ── Card view socials row (viewing a saved card) ───────────────────────── */
 
 .card-socials {

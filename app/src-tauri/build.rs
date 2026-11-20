@@ -56,6 +56,9 @@ fn main() {
     println!("cargo:rustc-env=LINKITYLINK_BUILD_ENV={name}");
     println!("cargo:rustc-env=GATEWAY_BDO_URL=https://{host}/bdo/");
     println!("cargo:rustc-env=SAVAGE_URL=https://{host}/savage/");
+    // eumachia hosts the tip pages a card's tip buttons link to (savage strips
+    // scripts, so a card page can't ask for an amount itself).
+    println!("cargo:rustc-env=EUMACHIA_URL=https://{host}/eumachia/");
     // Published uuids are stored per-env under this key, because a uuid minted
     // against one gateway 404s an update against another. Deriving it from the
     // host rather than hand-maintaining it means the two can never disagree.

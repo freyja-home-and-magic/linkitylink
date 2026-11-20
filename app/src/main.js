@@ -27,6 +27,10 @@ linkLimitHint.textContent = `Up to ${MAX_LINKS} links. Remove one to add another
 const importBizbuzBtn = document.getElementById('import-bizbuz-btn');
 const socialsGrid = document.getElementById('socials-grid');
 const cardSocialsEl = document.getElementById('card-socials');
+const tipsSection = document.getElementById('tips-section');
+const tipUsdInput = document.getElementById('tip-usd');
+const tipUsdHint = document.getElementById('tip-usd-hint');
+const cardTipsEl = document.getElementById('card-tips');
 const urlImportModal = document.getElementById('url-import-modal');
 const urlImportInput = document.getElementById('url-import-input');
 const urlImportSubmitBtn = document.getElementById('url-import-submit-btn');
@@ -68,6 +72,10 @@ let pendingLinks = []; // working NON-social link-entry array while the edit for
 let pendingSocials = {}; // slug -> username, staged from the socials grid; extracted from card.links on load, merged back on save
 let expandedSocial = null; // slug of the currently-open disclosure, or null
 let deleteArmed = false;
+// Whether GetPayed has payouts ready (tips_available in Rust). Refreshed on
+// launch and whenever the app comes back to the foreground, since that's
+// when someone returns from setting up GetPayed.
+let tipsAvailable = false;
 let deleteArmedTimeout = null;
 // Id of the card currently in the App Group (the one BizBuz imports), or
 // null if nothing is shared. Mirrors get_shared_card_id in Rust — kept in
@@ -557,7 +565,63 @@ function cardFromForm() {
         bio: document.getElementById('field-bio').value.trim() || undefined,
         photo: pendingPhoto || undefined,
         links: [...socialLinks, ...pendingLinks],
+        tips: tipsFromForm(),
     };
+}
+
+// ── Tips ─────────────────────────────────────────────────────────────────────
+
+function tipsFromForm() {
+    return tipUsdInput.checked ? { usd: true } : undefined;
+}
+
+// The section appears once GetPayed is ready, and stays visible on a card
+// that already has tips so they can be turned off again. Without GetPayed,
+// USD can't be switched on: a card tip with nowhere to pay out would charge
+// the visitor and pay the owner nothing.
+function renderTipsSection(source) {
+    const tips = source?.tips;
+    tipsSection.hidden = !(tipsAvailable || tips?.usd);
+    tipUsdInput.checked = !!tips?.usd && tipsAvailable;
+    tipUsdInput.disabled = !tipsAvailable;
+    tipUsdHint.textContent = tipsAvailable
+        ? 'Visitors pay by card and it goes to the Stripe account you set up in GetPayed.'
+        : 'Finish setting up payouts in GetPayed to take card tips.';
+}
+
+function renderCardTips(c) {
+    const tips = c?.tips;
+    const offers = [];
+    if (tips?.usd && tipsAvailable) offers.push('USD');
+    cardTipsEl.innerHTML = '';
+    cardTipsEl.hidden = offers.length === 0;
+    if (!offers.length) return;
+    const label = document.createElement('p');
+    label.className = 'card-tips-label';
+    label.textContent = 'Visitors can tip you';
+    const row = document.createElement('div');
+    row.className = 'card-tips-row';
+    for (const o of offers) {
+        const pill = document.createElement('span');
+        pill.className = 'card-tip-pill';
+        pill.textContent = `Tip in ${o}`;
+        row.appendChild(pill);
+    }
+    cardTipsEl.append(label, row);
+}
+
+async function refreshTipsAvailable() {
+    try {
+        tipsAvailable = await core.invoke('tips_available');
+    } catch {
+        tipsAvailable = false;
+    }
+    // Keep an open editor in step, without touching what's typed in it.
+    if (!editView.hidden) {
+        const typed = tipsFromForm();
+        renderTipsSection({ tips: typed ?? activeCard?.tips });
+    }
+    if (!cardView.hidden && activeCard) renderCardTips(activeCard);
 }
 
 function fillForm(source) {
@@ -587,6 +651,7 @@ function fillForm(source) {
     newLinkUrl.value = '';
     setAvatarContent(photoPreview, source?.photo, source?.name || '');
     renderSocialsGrid();
+    renderTipsSection(source);
     renderLinkEntries();
 }
 
@@ -835,6 +900,7 @@ function renderCardView(c) {
         a.querySelector('span').textContent = entry.label || entry.url;
         linksEl.appendChild(a);
     }
+    renderCardTips(c);
 }
 
 function renderPublishLink(c) {
@@ -946,6 +1012,7 @@ function openNewCardForm() {
     form.reset();
     setAvatarContent(photoPreview, null, '');
     renderSocialsGrid();
+    renderTipsSection(null);
     renderLinkEntries();
     cancelEditBtn.hidden = cards.length === 0;
     deleteCardBtn.hidden = true;
@@ -1244,6 +1311,7 @@ function joinPool() {
 document.addEventListener('visibilitychange', () => {
     if (!document.hidden) {
         refreshReferral();
+        refreshTipsAvailable();
         joinPool();
     }
 });
@@ -1566,6 +1634,7 @@ async function init() {
     // Before loadCards, which renders the grid — the "Shared" badge needs
     // sharedCardId to already be populated on that first paint.
     await refreshSharedCardId();
+    await refreshTipsAvailable();
     await loadCards();
     refreshReferral();
     joinPool();

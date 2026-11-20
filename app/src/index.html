@@ -71,6 +71,20 @@
                 <p class="section-label">Socials</p>
                 <div class="socials-grid" id="socials-grid"></div>
 
+                <!-- Tips: shown once GetPayed has payouts ready (tips_available),
+                     or when this card already has tips set. The published card
+                     links its tip buttons to eumachia's tip page. -->
+                <div class="tips-section" id="tips-section" hidden>
+                    <p class="section-label">Tips</p>
+                    <label class="tip-toggle">
+                        <input type="checkbox" id="tip-usd">
+                        <span>
+                            Accept tips in USD
+                            <small id="tip-usd-hint">Visitors pay by card and it goes to the Stripe account you set up in GetPayed.</small>
+                        </span>
+                    </label>
+                </div>
+
                 <p class="section-label">Links</p>
                 <ul class="link-entries" id="link-entries"></ul>
 
@@ -99,6 +113,7 @@
                 <p class="card-bio" id="card-bio"></p>
 
                 <div class="card-socials" id="card-socials"></div>
+                <div class="card-tips" id="card-tips" hidden></div>
                 <div class="link-list" id="card-links"></div>
 
                 <button type="button" class="btn btn-secondary" id="edit-btn">Edit</button>

@@ -30,6 +30,9 @@ use tauri::Manager;
 // and the reason releases go to prod.
 const GATEWAY_BDO_URL: &str = env!("GATEWAY_BDO_URL");
 const SAVAGE_URL: &str = env!("SAVAGE_URL");
+/// eumachia, where a card's tip buttons go: savage strips scripts, so the
+/// card page can't ask a visitor how much to tip. See `tip_links`.
+const EUMACHIA_URL: &str = env!("EUMACHIA_URL");
 const BDO_HASH: &str = "linkitylink-card";
 
 // ── Palette ──────────────────────────────────────────────────────────────────
@@ -113,6 +116,20 @@ pub struct LinkCard {
     pub share_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub published_at: Option<String>,
+    /// Which tip options this card offers. Absent = none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tips: Option<CardTips>,
+}
+
+/// A card's tip options, as the owner chose them in the editor. What actually
+/// gets published is decided in `tip_jar`: USD also needs GetPayed connected.
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CardTips {
+    /// Card payments through GetPayed (Stripe via addie, paid out to the
+    /// owner's connected account).
+    #[serde(default)]
+    pub usd: bool,
 }
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -539,7 +556,114 @@ fn readable_icon_fill(hex: &str) -> &'static str {
 /// row per link. Mirrors bizbuz's `render_card_svg` — same dark/green/purple
 /// visual language, same dynamic-height-via-cursor technique, extended with
 /// a loop over a variable-length list instead of a fixed set of fields.
-fn render_card_svg(card: &LinkCard) -> String {
+// ── Tips ─────────────────────────────────────────────────────────────────────
+//
+// A card can offer tips in USD (through GetPayed). The published card is a
+// script-free SVG on savage, so it can't ask for an amount: its tip button
+// links to eumachia's /tip/:uuid page, carrying the card's own pre-signed
+// read credentials (the same ones in its savage URL). eumachia reads the
+// card's `tipJar` with them, asks for an amount, mints a one-off invoice and
+// sends the visitor to its pay page. See eumachia/src/server/node/src/tips/tips.js.
+
+/// Whether the user can take USD tips: GetPayed reports Stripe payout-ready
+/// AND has shared where payouts go. Either alone isn't enough — a key with
+/// unfinished onboarding takes the payer's money and pays out nothing.
+async fn getpayed_ready_destination(app: &tauri::AppHandle) -> Option<PayoutDestination> {
+    let profile = load_canonical_profile(app.clone()).await.ok().flatten()?;
+    if profile.stripe_connected != Some(true) {
+        return None;
+    }
+    profile
+        .payout
+        .filter(|p| !p.pub_key.trim().is_empty() && !p.addie_url.trim().is_empty())
+}
+
+/// For the editor: whether to offer the Tips section at all.
+#[tauri::command]
+async fn tips_available(app: tauri::AppHandle) -> bool {
+    getpayed_ready_destination(&app).await.is_some()
+}
+
+/// What a card publishes as its `tipJar`, or None if it offers nothing.
+/// USD is dropped silently if GetPayed isn't ready, so a card never offers
+/// a tip that would charge the visitor and pay its owner nothing.
+fn tip_jar(tips: Option<&CardTips>, usd_destination: Option<&PayoutDestination>) -> Option<serde_json::Value> {
+    let tips = tips?;
+    let mut jar = serde_json::Map::new();
+    if tips.usd {
+        if let Some(destination) = usd_destination {
+            jar.insert("usd".into(), payout_json(destination));
+        }
+    }
+    (!jar.is_empty()).then(|| serde_json::Value::Object(jar))
+}
+
+/// The tip buttons' targets on the published card.
+#[derive(Debug, Default)]
+struct TipLinks {
+    usd: Option<String>,
+}
+
+fn tip_links(jar: Option<&serde_json::Value>, uuid: &str, timestamp: &str, signature: &str) -> TipLinks {
+    let link = |method: &str| {
+        format!("{EUMACHIA_URL}tip/{uuid}?hash={BDO_HASH}&timestamp={timestamp}&signature={signature}&method={method}")
+    };
+    TipLinks {
+        usd: jar.and_then(|j| j.get("usd")).map(|_| link("usd")),
+    }
+}
+
+/// Same 8 platforms as the editor's socials grid (`detectSocialSlug` in
+/// main.js). The editor saves socials first, so on the card they're the
+/// leading run of links, and the tip row goes right after them.
+fn is_social_link(url: &str) -> bool {
+    let host = extract_host(&normalize_url(url));
+    matches!(
+        host.trim_start_matches("www."),
+        "instagram.com" | "x.com" | "twitter.com" | "tiktok.com" | "youtube.com" | "youtu.be"
+            | "facebook.com" | "fb.com" | "linkedin.com" | "github.com" | "codeberg.org"
+    )
+}
+
+/// The tip row: pill buttons side by side, under a small label.
+/// Returns the markup and the height it used.
+fn render_tip_row(tips: &TipLinks, y: u32, row_x: u32, row_width: u32) -> (String, u32) {
+    let buttons: Vec<(&str, &String)> = [("Tip in USD", tips.usd.as_ref())]
+        .into_iter()
+        .filter_map(|(label, href)| href.map(|h| (label, h)))
+        .collect();
+    if buttons.is_empty() {
+        return (String::new(), 0);
+    }
+    const LABEL_H: u32 = 22;
+    const BUTTON_H: u32 = 44;
+    const GAP: u32 = 12;
+    // Matches the space a link row leaves under itself (ROW_HEIGHT + 12 per
+    // row, 44 of it drawn).
+    const AFTER: u32 = 24;
+    let cx = row_x + row_width / 2;
+    let mut out = format!(
+        r#"<text x="{cx}" y="{}" font-family="sans-serif" font-size="12" font-weight="600" letter-spacing="1" fill="rgba({PALETTE_INK_RGB},0.6)" text-anchor="middle">LEAVE A TIP</text>
+"#,
+        y + 12,
+    );
+    let count = buttons.len() as u32;
+    let width = (row_width - GAP * (count - 1)) / count;
+    let top = y + LABEL_H;
+    for (i, (label, href)) in buttons.iter().enumerate() {
+        let x = row_x + i as u32 * (width + GAP);
+        out.push_str(&format!(
+            r#"<a href="{}"><rect x="{x}" y="{top}" width="{width}" height="{BUTTON_H}" rx="22" fill="{PALETTE_GREEN}"/><text x="{}" y="{}" font-family="sans-serif" font-size="15" font-weight="600" fill="{PALETTE_ON_GREEN}" text-anchor="middle">{label}</text></a>
+"#,
+            escape_xml(href),
+            x + width / 2,
+            top + BUTTON_H / 2 + 5,
+        ));
+    }
+    (out, LABEL_H + BUTTON_H + AFTER)
+}
+
+fn render_card_svg(card: &LinkCard, tips: &TipLinks) -> String {
     const WIDTH: u32 = 400;
     const BG: &str = PALETTE_BG;
     const GREEN: &str = PALETTE_GREEN;
@@ -604,7 +728,15 @@ fn render_card_svg(card: &LinkCard) -> String {
     y += 40;
     let row_x: u32 = 40;
     let row_width: u32 = WIDTH - row_x * 2;
+    let mut tips_drawn = false;
     for entry in card.links.iter().take(MAX_LINKS) {
+        // Tips sit between the socials and the other links.
+        if !tips_drawn && !entry.url.trim().is_empty() && !is_social_link(&entry.url) {
+            let (row, used) = render_tip_row(tips, y, row_x, row_width);
+            body.push_str(&row);
+            y += used;
+            tips_drawn = true;
+        }
         let label = if entry.label.trim().is_empty() {
             entry.url.trim().to_string()
         } else {
@@ -655,6 +787,12 @@ fn render_card_svg(card: &LinkCard) -> String {
             row_x + row_width - 18,
         ));
         y += ROW_HEIGHT + 12;
+    }
+    // All socials, or no links at all: the tips go after whatever there is.
+    if !tips_drawn {
+        let (row, used) = render_tip_row(tips, y, row_x, row_width);
+        body.push_str(&row);
+        y += used;
     }
 
     y += 12;
@@ -866,6 +1004,10 @@ async fn save_card(app: tauri::AppHandle, mut card: LinkCard) -> Result<LinkCard
         }
     }
 
+    if card.tips.as_ref().is_some_and(|t| !t.usd) {
+        card.tips = None;
+    }
+
     card.links.truncate(MAX_LINKS);
     for entry in card.links.iter_mut() {
         if entry.id.is_empty() {
@@ -939,12 +1081,77 @@ async fn publish_card(app: tauri::AppHandle, card_id: String) -> Result<LinkCard
     let sessionless = load_or_create_bdo_sessionless(&app, &card_id)?;
     let client = BDO::new(Some(GATEWAY_BDO_URL.to_string()), Some(sessionless));
 
-    let svg = render_card_svg(&store.cards[index]);
-    let mut card_json = serde_json::to_value(&store.cards[index]).map_err(|e| e.to_string())?;
+    // Tip buttons link to eumachia with this card's own read credentials, and
+    // a signature needs the uuid, which a never-published card only gets from
+    // create_user. So a first publish of a card with tips is create, then
+    // update; every other publish is the single write it always was.
+    let usd_destination = getpayed_ready_destination(&app).await;
+    let jar = tip_jar(store.cards[index].tips.as_ref(), usd_destination.as_ref());
+
+    let existing_uuid = store.cards[index].bdo_uuid_by_env.get(GATEWAY_ENV).cloned();
+    let (uuid, needs_write) = match existing_uuid {
+        Some(uuid) => (uuid, true),
+        None => {
+            let first = card_record(&app, &store.cards[index], &TipLinks::default(), None).await?;
+            let user = client
+                .create_user(BDO_HASH, &first, &true)
+                .await
+                .map_err(|e| e.to_string())?;
+            (user.uuid, jar.is_some())
+        }
+    };
+
+    let timestamp = unix_now_ms_string();
+    let signature = client
+        .sessionless
+        .sign(format!("{timestamp}{uuid}{BDO_HASH}"))
+        .to_hex();
+
+    if needs_write {
+        let links = tip_links(jar.as_ref(), &uuid, &timestamp, &signature);
+        let record = card_record(&app, &store.cards[index], &links, jar).await?;
+        client
+            .update_bdo(&uuid, BDO_HASH, &record, &true)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+
+    let long_url = format!(
+        "{SAVAGE_URL}user/{uuid}/bdo?timestamp={timestamp}&hash={BDO_HASH}&signature={signature}"
+    );
+    // The short linkityl.ink link when savage can make one, else the long
+    // one, which works just as well. Published cards are republished on
+    // every launch, so a card that missed out gets its short link next time.
+    let owner = load_or_create_bdo_sessionless(&app, SHORT_LINK_OWNER_KEY).ok();
+    let share_url = register_short_link(&uuid, &timestamp, &signature, owner.as_ref())
+        .await
+        .unwrap_or(long_url);
+
+    store.cards[index].bdo_uuid_by_env.insert(GATEWAY_ENV.to_string(), uuid);
+    store.cards[index].share_url = Some(share_url);
+    store.cards[index].published_at = Some(unix_now_ms_string());
+    let updated = store.cards[index].clone();
+    write_cards(&app, &store)?;
+    Ok(updated)
+}
+
+/// The BDO record for a card: the card itself, its rendered SVG, and what
+/// savage, the payment pool and eumachia's tip page read off it.
+async fn card_record(
+    app: &tauri::AppHandle,
+    card: &LinkCard,
+    tips: &TipLinks,
+    jar: Option<serde_json::Value>,
+) -> Result<serde_json::Value, String> {
+    let svg = render_card_svg(card, tips);
+    let mut card_json = serde_json::to_value(card).map_err(|e| e.to_string())?;
     let card_obj = card_json
         .as_object_mut()
         .ok_or_else(|| "card serialized to non-object".to_string())?;
     card_obj.insert("svg".to_string(), serde_json::Value::String(svg));
+    if let Some(jar) = jar {
+        card_obj.insert("tipJar".to_string(), jar);
+    }
 
     // Themes savage's page chrome — the ground behind the card and the button
     // — to match the card. Without this savage falls back to BizBuz's old
@@ -966,7 +1173,7 @@ async fn publish_card(app: tauri::AppHandle, card_id: String) -> Result<LinkCard
     // program is live and they've set up payouts in GetPayed. Cards are
     // republished on every launch, so connecting later reaches them all.
     if REFERRALS_LIVE {
-        if let Some(destination) = shared_payout_destination(&app).await {
+        if let Some(destination) = shared_payout_destination(app).await {
             card_obj.insert("payout".to_string(), payout_json(&destination));
         }
     }
@@ -974,48 +1181,11 @@ async fn publish_card(app: tauri::AppHandle, card_id: String) -> Result<LinkCard
     // Whose card this is, for the payment pool: views of it and taps on it
     // earn this person nineum. Public, and harmless if copied: it can only
     // ever gift nineum to the identity it names.
-    if let Ok(identity) = homefront_identity(&app) {
+    if let Ok(identity) = homefront_identity(app) {
         card_obj.insert("fount".to_string(), serde_json::json!({ "pubKey": identity.pub_key }));
     }
 
-    let existing_uuid = store.cards[index].bdo_uuid_by_env.get(GATEWAY_ENV).cloned();
-
-    let uuid = if let Some(uuid) = existing_uuid {
-        client
-            .update_bdo(&uuid, BDO_HASH, &card_json, &true)
-            .await
-            .map_err(|e| e.to_string())?;
-        uuid
-    } else {
-        let user = client
-            .create_user(BDO_HASH, &card_json, &true)
-            .await
-            .map_err(|e| e.to_string())?;
-        user.uuid
-    };
-
-    let timestamp = unix_now_ms_string();
-    let signature = client
-        .sessionless
-        .sign(format!("{timestamp}{uuid}{BDO_HASH}"))
-        .to_hex();
-    let long_url = format!(
-        "{SAVAGE_URL}user/{uuid}/bdo?timestamp={timestamp}&hash={BDO_HASH}&signature={signature}"
-    );
-    // The short linkityl.ink link when savage can make one, else the long
-    // one, which works just as well. Published cards are republished on
-    // every launch, so a card that missed out gets its short link next time.
-    let owner = load_or_create_bdo_sessionless(&app, SHORT_LINK_OWNER_KEY).ok();
-    let share_url = register_short_link(&uuid, &timestamp, &signature, owner.as_ref())
-        .await
-        .unwrap_or(long_url);
-
-    store.cards[index].bdo_uuid_by_env.insert(GATEWAY_ENV.to_string(), uuid);
-    store.cards[index].share_url = Some(share_url);
-    store.cards[index].published_at = Some(unix_now_ms_string());
-    let updated = store.cards[index].clone();
-    write_cards(&app, &store)?;
-    Ok(updated)
+    Ok(card_json)
 }
 
 /// Asks savage for the card's short link: linkityl.ink/<name>, or
@@ -1926,6 +2096,7 @@ pub fn run() {
             save_card,
             delete_card,
             publish_card,
+            tips_available,
             import_links,
             get_or_create_referral_link,
             referral_status,
@@ -1969,6 +2140,7 @@ mod tests {
         };
         assert_eq!(GATEWAY_BDO_URL, format!("https://{host}/bdo/"));
         assert_eq!(SAVAGE_URL, format!("https://{host}/savage/"));
+        assert_eq!(EUMACHIA_URL, format!("https://{host}/eumachia/"));
         assert_eq!(GATEWAY_ENV, host.replace('.', "-"));
     }
     #[test]
@@ -2050,7 +2222,7 @@ mod tests {
             ..Default::default()
         };
 
-        let svg = render_card_svg(&card);
+        let svg = render_card_svg(&card, &TipLinks::default());
         std::fs::write("/tmp/linkitylink-card-sample.svg", &svg).unwrap();
 
         assert!(!svg.contains("rgba(255,255,255"), "white text on a light card");
@@ -2129,5 +2301,65 @@ mod short_link_tests {
         assert!(!is_short_link("http://linkityl.ink/jane-doe"));
         assert!(!is_short_link("https://linkityl.ink.evil.example/jane"));
         assert!(!is_short_link("https://example.com/jane"));
+    }
+}
+
+#[cfg(test)]
+mod tip_tests {
+    use super::*;
+
+    fn destination() -> PayoutDestination {
+        PayoutDestination {
+            pub_key: "02c956a0ea38fbff0f33a538df041b5d135a6411c34f390b2203effefd5160fd2f".into(),
+            addie_url: "https://prod.8as.world/addie/".into(),
+        }
+    }
+
+    #[test]
+    fn usd_needs_getpayed_ready() {
+        let tips = CardTips { usd: true };
+        assert!(tip_jar(Some(&tips), None).is_none(), "no destination, no USD tips");
+        let jar = tip_jar(Some(&tips), Some(&destination())).unwrap();
+        assert_eq!(jar["usd"]["pubKey"], destination().pub_key);
+        assert_eq!(jar["usd"]["addieURL"], destination().addie_url);
+        assert!(tip_jar(Some(&CardTips { usd: false }), Some(&destination())).is_none());
+    }
+
+    #[test]
+    fn tip_links_carry_the_card_credentials() {
+        let jar = serde_json::json!({ "usd": {} });
+        let links = tip_links(Some(&jar), "u-1", "123", "abc");
+        assert_eq!(
+            links.usd.as_deref(),
+            Some(format!("{EUMACHIA_URL}tip/u-1?hash=linkitylink-card&timestamp=123&signature=abc&method=usd").as_str())
+        );
+        assert!(tip_links(None, "u-1", "123", "abc").usd.is_none());
+    }
+
+    #[test]
+    fn tips_render_between_socials_and_links() {
+        let card = LinkCard {
+            id: "t".into(),
+            name: Some("Ada Lovelace".into()),
+            links: vec![
+                LinkEntry { id: "1".into(), label: "Instagram".into(), url: "https://instagram.com/ada".into() },
+                LinkEntry { id: "2".into(), label: "GitHub".into(), url: "https://github.com/ada".into() },
+                LinkEntry { id: "3".into(), label: "Portfolio".into(), url: "https://example.com".into() },
+            ],
+            ..Default::default()
+        };
+        let links = TipLinks { usd: Some("https://h/eumachia/tip/u?a=1&method=usd".into()) };
+        let svg = render_card_svg(&card, &links);
+        std::fs::write("/tmp/linkitylink-card-tips-sample.svg", &svg).unwrap();
+
+        let github = svg.find("https://github.com/ada").unwrap();
+        let tip = svg.find("LEAVE A TIP").unwrap();
+        let portfolio = svg.find("https://example.com").unwrap();
+        assert!(github < tip && tip < portfolio, "tips go after the socials, before the links");
+        assert!(svg.contains("?a=1&amp;method=usd"), "hrefs are escaped");
+        assert!(svg.contains("Tip in USD"));
+
+        let none = render_card_svg(&card, &TipLinks::default());
+        assert!(!none.contains("LEAVE A TIP"));
     }
 }
